@@ -1,0 +1,32 @@
+## Interface: 11509
+## Title: LootZ
+## Version: 1.2.8
+## Author: Aleksander Fimreite
+## Dependencies: 
+## OptDeps: 
+## SavedVariables: LediiData_LootZ
+
+Constants.lua
+Logger.lua
+Utility.lua
+Looting.lua
+Tooltip.lua
+Rendering.lua
+Events.lua
+Console.lua
+
+Database/Setup.lua
+Database/WotLK/CreatureLoot.lua
+Database/WotLK/DisenchantLoot.lua
+Database/WotLK/FishingLoot.lua
+Database/WotLK/GameObjectLoot.lua
+Database/WotLK/ItemLoot.lua
+Database/WotLK/MailLoot.lua
+Database/WotLK/MillingLoot.lua
+Database/WotLK/PickpocketingLoot.lua
+Database/WotLK/ProspectingLoot.lua
+Database/WotLK/ReferenceLoot.lua
+Database/WotLK/SkinningLoot.lua
+Database/WotLK/SpellLoot.lua
+Database/WotLK/GameObjectData.lua
+Database/WotLK/GameObjectInstance.lua
