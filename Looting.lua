@@ -2,6 +2,7 @@
 local log = _G.LEDII_LZ_LOG
 local const = _G.LEDII_LZ_CONST
 local utils = _G.LEDII_LZ_UTILS
+local compat = _G.LEDII_LZ_COMPAT
 
 local function class()
 	local obj = {}
@@ -105,15 +106,31 @@ local function class()
 		--log:Info(const:Color("WARNING") .. "Source locked for 0.5s <" .. UnitName(unitId) .. ">")
 
 		--Update loot source
-		currentLootSource = {}
-		currentLootSource.guid = UnitGUID(unitId)
-		currentLootSource.name = UnitName(unitId)
-		currentLootSource.level = UnitLevel(unitId)
-		currentLootSource.type = UnitCreatureType(unitId)
-		currentLootSource.family = UnitCreatureFamily(unitId) or "Solitary"
-		currentLootSource.dead = UnitIsDead(unitId)
-		currentLootSource.unitId = utils:BreakGUID(currentLootSource.guid).index
+		currentLootSource = obj:BuildLootSource(unitId)
 		--log:Info("Loot source: " .. currentLootSource.name)
+	end
+
+	function obj:BuildLootSource(unitId)
+		local source = {}
+		source.guid = UnitGUID(unitId)
+		source.name = UnitName(unitId)
+		source.level = UnitLevel(unitId)
+		source.type = UnitCreatureType(unitId)
+		source.family = UnitCreatureFamily(unitId) or "Solitary"
+		source.dead = UnitIsDead(unitId)
+		source.unitId = utils:BreakGUID(source.guid).index
+
+		return source
+	end
+
+	function obj:TryBuildTargetLootSource()
+		--Only a dead unit can be a loot source
+		if (not obj:IsValidLootTarget("target")) then return nil end
+
+		--Never attribute the loot of a world object to the current target
+		if (utils:GetCurrentObjectName() ~= nil) then return nil end
+
+		return obj:BuildLootSource("target")
 	end
 
 	function obj:GetLootSlot(index)
@@ -141,7 +158,7 @@ local function class()
 		data.ilvl = itemLevel
 		data.type = itemType
 		data.subType = itemSubType
-		data.itemId = GetItemInfoFromHyperlink(itemLink)
+		data.itemId = compat:GetItemIdFromLink(itemLink)
 
 		return data
 	end
@@ -162,6 +179,17 @@ local function class()
 		--Consume object lock
 		if (lootObjectLocked) then
 			lootObjectLocked = false
+			return
+		end
+
+		--Fall back to the target when the click was not seen. Looting a corpse
+		--always targets it on 3.3.5a, and this also covers looting through a
+		--keybind instead of the mouse.
+		local targetSource = obj:TryBuildTargetLootSource()
+		if (targetSource ~= nil) then
+			if (currentLootSource == nil or currentLootSource.guid ~= targetSource.guid) then
+				currentLootSource = targetSource
+			end
 		end
 
 		if (currentLootSource == nil) then return end
@@ -175,6 +203,7 @@ local function class()
 		--log:Info("OnLootOpened")
 
 		--Validate disabled
+		obj:PrepareCache()
 		if (LediiData_LootZ.statsGatherDisabled) then return end
 
 		--Validate sources
@@ -254,22 +283,10 @@ local function class()
 	end
 
 	function obj:RegisterMoney(lootSrc, lootSlot, dataUnit)
-		--Convert to expected format {val,key,val,key,val,key}
-		local moneySegments = utils:Split(lootSlot.name, "\n")
-		local moneyParts = {}
-		for i in ipairs(moneySegments) do
-			local parts = utils:Split(moneySegments[i], " ")
-			for j in ipairs(parts) do
-				table.insert(moneyParts, parts[j])
-			end
-		end
+		--The coin text is formatted differently per client and per locale,
+		--the compat layer reads the amounts straight out of the string
+		local total = compat:ParseMoneyString(lootSlot.name)
 
-		--Evaluate amount of each value
-		local gold = obj:ParseMoneyQuanity(moneyParts, "Gold")
-		local silver = obj:ParseMoneyQuanity(moneyParts, "Silver")
-		local copper = obj:ParseMoneyQuanity(moneyParts, "Copper")
-		local total = (gold * 10000) + (silver * 100) + (copper * 1)
-		
 		--log:Info("Money: " .. const:Color("TEXT_HIGHLIGHT") .. GetCoinTextureString(total))
 		lootSlot.name = "Money"
 		lootSlot.quantity = total
@@ -297,18 +314,6 @@ local function class()
 		dataSlot.totalCount = dataSlot.totalCount + 1
 
 		return dataSlot
-	end
-
-	function obj:ParseMoneyQuanity(moneyParts, match)
-		if (moneyParts[2] == match) then
-			return moneyParts[1]
-		elseif (moneyParts[4] == match) then
-			return moneyParts[3]
-		elseif (moneyParts[6] == match) then
-			return moneyParts[5]
-		else
-			return 0
-		end
 	end
 
 	return obj

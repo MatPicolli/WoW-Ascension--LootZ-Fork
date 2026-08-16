@@ -1,11 +1,13 @@
-## Interface: 11509
-## Title: LootZ
-## Version: 1.2.8
-## Author: Aleksander Fimreite
-## Dependencies: 
-## OptDeps: 
+## Interface: 30300
+## Title: LootZ |cff00ff00(Ascension)|r
+## Notes: Browse the full loot table of any creature or object. Ported to the 3.3.5a client.
+## Version: 1.2.8-ascension
+## Author: Aleksander Fimreite (Ledii) - 3.3.5a port
+## Dependencies:
+## OptDeps:
 ## SavedVariables: LediiData_LootZ
 
+Compat.lua
 Constants.lua
 Logger.lua
 Utility.lua

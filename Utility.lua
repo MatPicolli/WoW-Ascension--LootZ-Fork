@@ -1,6 +1,7 @@
---print("Loaded <Utility.lua>")obj:BreakGUID
+--print("Loaded <Utility.lua>")
 local const = _G.LEDII_LZ_CONST
 local log = _G.LEDII_LZ_LOG
+local compat = _G.LEDII_LZ_COMPAT
 
 local function class()
 	local obj = {}
@@ -10,8 +11,12 @@ local function class()
 		local tables = {}
 		local numTables = 100
 
+		--The loot database is optional, see Database/Setup.lua
+		local db = _G.LEDII_DB
+		if (db == nil) then return tables end
+
 		for i = 1, numTables do
-			local dbTable = _G.LEDII_DB[dbName .. "_" .. i]
+			local dbTable = db[dbName .. "_" .. i]
 			if (dbTable ~= nil) then
 				table.insert(tables, dbTable)
 			end
@@ -20,10 +25,17 @@ local function class()
 		return tables
 	end
 
+	local missingTablesWarned = {}
+
 	function obj:FindIndexFromDB(dbName, index, failWarning)
 		local tables = obj:GetTablesDB(dbName)
 		if (#tables == 0) then
-			log:Info(const:Color("ERROR") .. "Database table <" .. dbName .. "> does not exist")
+			--Only warn once per table, otherwise a missing database spams the chat
+			if (not missingTablesWarned[dbName]) then
+				missingTablesWarned[dbName] = true
+				log:Info(const:Color("ERROR") .. "Database table <" .. dbName .. "> does not exist")
+				log:Info(const:Color("ERROR") .. "See the readme on how to install the loot database.")
+			end
 			return nil
 		end
 
@@ -76,18 +88,24 @@ local function class()
 		--Prevent non objects
 		local tUnit = GameTooltip:GetUnit()
 		local tItem = GameTooltip:GetItem()
-		local tSpell = GameTooltip:GetSpell()
+		local tSpell = compat:GetTooltipSpell(GameTooltip)
 		if (tUnit ~= nil or tItem ~= nil or tSpell ~= nil) then return end
 
 		--Get name of object from tooltip
-		local name = _G["GameTooltipTextLeft1"]:GetText()
+		local nameLine = _G["GameTooltipTextLeft1"]
+		if (nameLine == nil) then return end
+		local name = nameLine:GetText()
 		if (name == nil) then return end
 		--log:Info("Name: " .. name)
 
 		--Handle invalid tooltip owners (menu ui buttons)
+		--World objects anchor their tooltip to UIParent
 		local owner = GameTooltip:GetOwner()
-		if (owner["firstTimeLoaded"] == nil) then return end
-		if (owner["variablesLoaded"] == nil) then return end
+		if (owner == nil) then return end
+		if (owner ~= UIParent) then
+			if (owner["firstTimeLoaded"] == nil) then return end
+			if (owner["variablesLoaded"] == nil) then return end
+		end
 		--log:ValueString(owner, "owner")
 
 		return name
@@ -96,7 +114,8 @@ local function class()
 	function obj:FindNearbyObjectInstances(validObjectRows, objectInstances, maxDistance)
 		if (#objectInstances > 0) then return end
 
-		local px, py = UnitPosition("player")
+		--3.3.5a has no world coordinates, every candidate is accepted instead
+		local px, py = compat:GetPlayerPosition()
 
 		for i = 1, #validObjectRows do
 			local row = validObjectRows[i]
@@ -192,25 +211,8 @@ local function class()
 	end
 
 	function obj:BreakGUID(guid)
-		if (guid == nil) then return {} end
-
-		--log:Info("GUID: " .. guid)
-		local parts = obj:Split(guid, "-")
-
-		local data = {}
-		data.type = parts[1]
-
-		if (data.type == "Player") then
-			data.realm = tonumber(parts[2])
-			data.instance = parts[3]
-		else
-			data.realm = tonumber(parts[3])
-			data.zone = tonumber(parts[5])
-			data.index = tonumber(parts[6])
-			data.instance = parts[7]
-		end
-
-		return data
+		--Handles both the modern dashed GUID and the 3.3.5a hex GUID
+		return compat:BreakGUID(guid)
 	end
 
 	function obj:MakeCustomLoot(item, reference, minCount, maxCount, chance, groupId)
@@ -273,7 +275,7 @@ local function class()
 
 	--General use
 	function obj:Split(s, delimiter)
-		result = {};
+		local result = {};
 		for match in (s..delimiter):gmatch("(.-)"..delimiter) do
 			table.insert(result, match);
 		end
@@ -370,7 +372,8 @@ local function class()
 		end
 
 		for i = 1, #items do
-			if (string.find(items[i], item)) then
+			--Plain search, item names may contain pattern characters
+			if (items[i] ~= nil and string.find(items[i], item, 1, true)) then
 				return true
 			end
 		end
@@ -383,17 +386,7 @@ local function class()
 	end
 
 	function obj:GetContinent()
-		local mapID = C_Map.GetBestMapForUnit("player")
-		while (mapID) do
-			local info = C_Map.GetMapInfo(mapID)
-			if (info.mapType == 2) then
-				return info.name
-			else
-				mapID = info.parentMapID
-			end
-		end
-
-		return nil
+		return compat:GetContinentName()
 	end
 
 
@@ -487,44 +480,17 @@ local function class()
 	end
 
 	function obj:TryFindItemInfo(index, successCallback, errorCallback)
-		local item = Item:CreateFromItemID(index)
-
-		if (item:IsItemEmpty()) then
+		if (index == nil) then
 			if (errorCallback ~= nil) then
 				errorCallback("Item does not exist")
 			end
 			return
 		end
 
-		--log:ValueString(item, "the-item:")
-		local iname = GetItemInfo(index)
-		if (iname ~= nil) then
-			--log:Info("The Item: " .. index .. " - " .. iname)
-		else
-			--log:Info("The Item: " .. index .. " - {None}")
-			successCallback(nil)
-			return
-		end
-
-		item:ContinueOnItemLoad(function()
-			local info = { GetItemInfo(index) }
-
-			local item = {}
-			item.name = info[1]
-			item.link = info[2]
-			item.rarity = info[3]
-			item.level = info[4]
-			item.minLevel = info[5]
-			item.type = info[6]
-			item.subtype = info[7]
-			item.stackCount = info[8]
-			item.slot = info[9]
-			item.texture = info[10]
-			item.sellprice = info[11]
-			item.classId = info[12]
-			item.subClassId = info[13]
-			successCallback(item)
-		end)
+		--The compat layer resolves the item now if the client already knows it,
+		--otherwise it asks the server and calls back once the data arrives.
+		--Items that never resolve call back with nil, which triggers a retry.
+		compat:RequestItem(index, successCallback)
 	end
 
 	return obj

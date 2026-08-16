@@ -1,23 +1,33 @@
 --print("Loaded <Events.lua>")
 local log = _G.LEDII_LZ_LOG
 local const = _G.LEDII_LZ_CONST
+local compat = _G.LEDII_LZ_COMPAT
 local loot = _G.LEDII_LZ_LOOT
 local tooltip = _G.LEDII_LZ_TOOLTIP
 local render = _G.LEDII_LZ_RENDER
+
+local frame = nil
+local hasLootReadyEvent = false
 
 local function PrivateClass()
 	local obj = {}
 
 	function obj:OnPlayerLogin()
+		--Must run first, on a fresh install the saved variables are still nil
+		loot:PrepareCache()
+
 		if (not LediiData_LootZ.welcomeDisabled) then
 			log:Info("Version " .. const:String("VERSION") .. " loaded!")
 			log:Info(_G.LEDII_LZ_WELCOME)
 		end
-
-		loot:PrepareCache()
 	end
 
 	function obj:OnLootOpened()
+		--3.3.5a has no LOOT_READY event, so the loot source is resolved here
+		if (not hasLootReadyEvent) then
+			obj:OnLootReady()
+		end
+
 		loot:OnLootOpened()
 		tooltip:OnLootOpened()
 	end
@@ -60,6 +70,11 @@ local function PrivateClass()
 		--Todo
 	end
 
+	--Used while binding a modifier key, see Rendering:SampleModifierHotkey
+	function obj:SetKeyboardCapture(enabled)
+		compat:SetKeyboardCapture(frame, enabled)
+	end
+
 	return obj
 end
 
@@ -73,32 +88,17 @@ local function OnEvent(self, event, ...)
 	elseif (event == "LOOT_OPENED") then
 		class:OnLootOpened(...)
 	elseif (event == "LOOT_READY") then
+		hasLootReadyEvent = true
 		class:OnLootReady(...)
 	elseif (event == "UPDATE_MOUSEOVER_UNIT") then
 		class:OnMouseoverChanged(...)
 	elseif (event == "PLAYER_TARGET_CHANGED") then
 		class:OnTargetChanged(...)
-	elseif (event == "GLOBAL_MOUSE_UP") then
-		class:OnMouseUp(...)
-	elseif (event == "GLOBAL_MOUSE_DOWN") then
-		class:OnMouseDown(...)
 	elseif (event == "CURSOR_CHANGED") then
 		class:OnCursorChanged(...)
 	elseif (event == "CURSOR_UPDATE") then
 		class:OnCursorChanged(...)
 	end
-end
-
-local function OnTooltipSetUnit()
-	class:OnTooltipSetUnit()
-end
-
-local function OnTooltipCleared()
-	class:OnTooltipCleared()
-end
-
-local function OnTooltipUpdate()
-	class:OnTooltipUpdate()
 end
 
 local function OnHyperlinkClicked(self, link, text, button)
@@ -110,36 +110,43 @@ local function OnKeyDown(self, key)
 end
 
 local function OnKeyUp(self, key)
-	--Note: Apparently not legal to use (does not work!)
 	class:OnKeyUp(key)
 end
 
 --Register the events
-local frame = CreateFrame("Frame")
+frame = CreateFrame("Frame", "LootZEventFrame")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("LOOT_OPENED")
-frame:RegisterEvent("LOOT_READY")
 frame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
-frame:RegisterEvent("GLOBAL_MOUSE_UP")
-frame:RegisterEvent("GLOBAL_MOUSE_DOWN")
 
---log:Info("Version name: " .. versionName)
---if (versionName == "Classic") then
-	--frame:RegisterEvent("CURSOR_UPDATE")
---else
-	frame:RegisterEvent("CURSOR_CHANGED")
---end
+--Events that only exist on some clients
+local function TryRegisterEvent(name)
+	pcall(frame.RegisterEvent, frame, name)
+end
+
+TryRegisterEvent("LOOT_READY")
+TryRegisterEvent("CURSOR_CHANGED")
+TryRegisterEvent("CURSOR_UPDATE")
 
 frame:SetScript("OnEvent", OnEvent)
 frame:SetScript("OnKeyDown", OnKeyDown)
 frame:SetScript("OnKeyUp", OnKeyUp)
-frame:EnableKeyboard(true)
-frame:SetPropagateKeyboardInput(true)
+
+--3.3.5a has no GLOBAL_MOUSE_UP / GLOBAL_MOUSE_DOWN, the compat layer tracks
+--the mouse buttons instead and reports them the same way
+compat:RegisterGlobalMouseUp(function(button) class:OnMouseUp(button) end)
+compat:RegisterGlobalMouseDown(function(button) class:OnMouseDown(button) end)
+
+--Keyboard is only captured while binding a hotkey on clients that cannot
+--pass unhandled keys back to the game
+compat:SetKeyboardCapture(frame, false)
 
 for i = 1, NUM_CHAT_WINDOWS do
-    local cfn = format('ChatFrame%i',i)
-    local cf = _G[cfn]
- 
-    cf:HookScript("OnHyperlinkClick", OnHyperlinkClicked)
+	local cfn = format('ChatFrame%i', i)
+	local cf = _G[cfn]
+
+	if (cf ~= nil) then
+		cf:HookScript("OnHyperlinkClick", OnHyperlinkClicked)
+	end
 end

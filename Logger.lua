@@ -6,8 +6,9 @@ local function class()
 
 	function obj:Info(msg)
 		local type = obj:FindMessageType(msg)
-		if (type == "WARNING" and LediiData_LootZ.logWarningHidden) then return end
-		if (type == "ERROR" and LediiData_LootZ.logErrorHidden) then return end
+		local data = LediiData_LootZ or {}
+		if (type == "WARNING" and data.logWarningHidden) then return end
+		if (type == "ERROR" and data.logErrorHidden) then return end
 
 		print(const:Color("HEADER") .. "[" .. const:String("NAME") .. "] " .. const:Color("TEXT") .. msg)
 	end

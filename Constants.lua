@@ -1,12 +1,14 @@
 --print("Loaded <Constants.lua>")
+local compat = _G.LEDII_LZ_COMPAT
 local name = ...
+if (name == nil or name == "") then name = "LootZ" end
 
 local function class()
 	local obj = {}
 
 	function obj:String(type)
 		if (type == "NAME") then return name
-		elseif (type == "VERSION") then return C_AddOns.GetAddOnMetadata(name, "Version")
+		elseif (type == "VERSION") then return compat:GetAddOnMetadata(name, "Version") or "Unknown"
 		end
 
 		return ""

@@ -10,6 +10,7 @@ local function class()
 
 	function obj:OnSetUnit()
 		--Validate disabled
+		if (LediiData_LootZ == nil) then return end
 		if (LediiData_LootZ.statsTooltipDisabled) then return end
 
 		--Determine whether to read from mouseover or target
@@ -25,6 +26,8 @@ local function class()
 
 		--log:Info(string.format("Tooltip for: %s (%s)", UnitName(unitId), UnitGUID(unitId)))
 		local ids = utils:BreakGUID(UnitGUID(unitId))
+		if (ids.index == nil) then return end
+
 		local dataUnit = utils:GetTrackedUnitData(ids.index, false)
 
 		local lootCount = 0
@@ -46,6 +49,7 @@ local function class()
 
 	function obj:OnUpdate()
 		--Validate disabled
+		if (LediiData_LootZ == nil) then return end
 		if (LediiData_LootZ.statsTooltipDisabled) then return end
 
 		--Validate consumed update
@@ -104,7 +108,7 @@ local function class()
 		end
 
 		--Prevents possible messed up tooltips
-		if (IsMouseButtonDown("RightButton")) then
+		if (IsMouseButtonDown ~= nil and IsMouseButtonDown("RightButton")) then
 			return
 		end
 
