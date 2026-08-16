@@ -2,12 +2,14 @@
 local log = _G.LEDII_LZ_LOG
 local const = _G.LEDII_LZ_CONST
 local utils = _G.LEDII_LZ_UTILS
+local compat = _G.LEDII_LZ_COMPAT
 
 local target = {}
 local hierarchy = nil
+local hierarchyRendered = false
 
 local visible = false
-local mainPanel = nil
+local mainFrame = nil
 local mainPanelPivot = "TOPRIGHT"
 local mainPanelEdgeOffset = { -10, -10 }
 local mainPanelSize = { 600, 400 }
@@ -365,6 +367,7 @@ local function class()
 
 	function obj:ClearHierarchy()
 		hierarchy = nil
+		hierarchyRendered = false
 	end
 
 	function obj:GetGroupItemCount(layer, row)
@@ -387,10 +390,15 @@ local function class()
 	function obj:FinishRequest()
 		--Handle loading order issue
 		numRequestedItems = numRequestedItems - 1
-		if (numRequestedItems == 0) then
-			--log:Info("Done loading items... Updating UI")
-			--obj:UpdateUI()
-		end
+		if (numRequestedItems > 0) then return end
+
+		--The 3.3.5a client only knows the items it has already seen, the rest
+		--arrive from the server a moment later. Anything that lands after the
+		--panel was drawn needs a redraw, or those rows are simply missing.
+		if (not hierarchyRendered) then return end
+
+		--log:Info("Done loading items... Updating UI")
+		obj:UpdateUI()
 	end
 
 
@@ -411,16 +419,27 @@ local function class()
 		return false
 	end
 
+	function obj:SetKeyboardCapture(enabled)
+		--Events.lua owns the frame that listens for keys
+		local events = _G.LEDII_LZ_EVENTS
+		if (events ~= nil) then
+			events:SetKeyboardCapture(enabled)
+		end
+	end
+
 	function obj:SampleModifierHotkey()
 		sampleModifier = true
+		obj:SetKeyboardCapture(true)
 		log:Info("Next modifier { SHIFT | CTRL | ALT } pressed will be bound...")
 	end
 
 	function obj:HandleCustomHotkeyMap(key)
 		if (sampleModifier == false) then return end
+		if (LediiData_LootZ == nil) then return end
 
 		LediiData_LootZ["HOTKEY_MOD"] = key
 		sampleModifier = false
+		obj:SetKeyboardCapture(false)
 		log:Info("Assigned modifier: " .. key)
 	end
 
@@ -557,17 +576,21 @@ local function class()
 
 
 	--General UI
+	local buttonCount = 0
+
 	function obj:CreateButton(parent, text)
-		--local button = CreateFrame("Button", nil, parent, "OptionsButtonTemplate") -Template removed!
-		local button = CreateFrame("Button", nil, parent, "GameMenuButtonTemplate")
+		--Templates differ per client, and 3.3.5a needs a real frame name for
+		--the templated child regions
+		buttonCount = buttonCount + 1
+		local button = compat:CreateButton("LootZButton" .. buttonCount, parent)
 		button:SetText(buttonColor .. text)
 
 		return button
 	end
 
 	function obj:CreateCell(name, color)
-		--Validate params
-		local frame = CreateFrame("Frame", name, UIParent, BackdropTemplateMixin and "BackdropTemplate")
+		--Validate params (unnamed on purpose, these are created per row)
+		local frame = CreateFrame("Frame", nil, UIParent, BackdropTemplateMixin and "BackdropTemplate")
 		frame:SetFrameStrata("BACKGROUND")
 		frame:SetBackdrop({
 			bgFile = "Interface/Tooltips/UI-Tooltip-Background", 
@@ -656,7 +679,7 @@ local function class()
 		headerLabel:SetText("")
 		headerLabel:SetJustifyH("LEFT")
 
-		searchField = CreateFrame("EditBox", nil, mainFrame, "InputBoxTemplate");
+		searchField = CreateFrame("EditBox", "LootZSearchBox", mainFrame, "InputBoxTemplate");
 		searchField:SetPoint("TOPRIGHT", -194, -10);
 		searchField:SetWidth(160)
 		searchField:SetHeight(20)
@@ -727,7 +750,7 @@ local function class()
 
 	function obj:SetupMainPanel()
 		--Create background frame
-		mainFrame = CreateFrame("Frame", "MainPanel", UIParent, BackdropTemplateMixin and "BackdropTemplate")
+		mainFrame = CreateFrame("Frame", "LootZMainPanel", UIParent, BackdropTemplateMixin and "BackdropTemplate")
 		mainFrame:SetFrameStrata("HIGH")
 		mainFrame:SetPoint(mainPanelPivot, mainPanelEdgeOffset[1], mainPanelEdgeOffset[2])
 		mainFrame:SetWidth(mainPanelSize[1])
@@ -745,28 +768,32 @@ local function class()
 	end
 
 	function obj:SetupScrollPanel(parentTopOffset)
-		scrollFrame = CreateFrame("ScrollFrame", "ScrollPanel", mainFrame, "UIPanelScrollFrameTemplate")
+		scrollFrame = CreateFrame("ScrollFrame", "LootZScrollPanel", mainFrame, "UIPanelScrollFrameTemplate")
 		local areaPadding = 6
 		--Setup scroll bar buttons
 		local scrollBarName = scrollFrame:GetName()
+		local scrollBarOffset = 22
 		local scrollButtonUp = _G[scrollBarName .. "ScrollBarScrollUpButton"]
-		scrollButtonUp:ClearAllPoints()
-		scrollButtonUp:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", -4, -4 + areaPadding)
-
 		local scrollButtonDown = _G[scrollBarName .. "ScrollBarScrollDownButton"]
-		scrollButtonDown:ClearAllPoints()
-		scrollButtonDown:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", -4, 4 - areaPadding)
-
 		local scrollBar = _G[scrollBarName .. "ScrollBar"]
-		scrollBar:ClearAllPoints()
-		scrollBar:SetPoint("TOP", scrollButtonUp, "BOTTOM", 0, 2)
-		scrollBar:SetPoint("BOTTOM", scrollButtonDown, "TOP", 0, -2)
-		local scrollBarOffset = scrollBar:GetWidth() + 6
+
+		if (scrollButtonUp ~= nil and scrollButtonDown ~= nil and scrollBar ~= nil) then
+			scrollButtonUp:ClearAllPoints()
+			scrollButtonUp:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", -4, -4 + areaPadding)
+
+			scrollButtonDown:ClearAllPoints()
+			scrollButtonDown:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", -4, 4 - areaPadding)
+
+			scrollBar:ClearAllPoints()
+			scrollBar:SetPoint("TOP", scrollButtonUp, "BOTTOM", 0, 2)
+			scrollBar:SetPoint("BOTTOM", scrollButtonDown, "TOP", 0, -2)
+			scrollBarOffset = scrollBar:GetWidth() + 6
+		end
 
 		local scrollChild = CreateFrame("Frame")
 		scrollFrame:SetScrollChild(scrollChild)
 		scrollFrame:SetAllPoints(mainFrame)
-		scrollChild:SetSize(scrollFrame:GetWidth() - scrollBarOffset - 10, scrollFrame:GetHeight() - parentTopOffset - areaPadding - 6)
+		compat:SetSize(scrollChild, scrollFrame:GetWidth() - scrollBarOffset - 10, scrollFrame:GetHeight() - parentTopOffset - areaPadding - 6)
 		scrollFrame:SetPoint("BOTTOM", 0, areaPadding)
 		scrollFrame:SetPoint("TOPLEFT", 0, -areaPadding - parentTopOffset)
 
@@ -787,6 +814,7 @@ local function class()
 		headerLabel:SetText(target.name)
 
 		if (hierarchy == nil) then return end
+		hierarchyRendered = true
 		local filteredHierarchy = obj:FilterHierarchy()
 
 		obj.layerQueue = {}
@@ -877,13 +905,13 @@ local function class()
 		if (IsControlKeyDown() and newHover ~= nil) then
 			if (not isShowingCursor) then
 				_G.LEDII_LZ_CURSOR_IGNORE = true
-				SetCursor("INSPECT_CURSOR")
+				compat:SetCursorTexture("INSPECT_CURSOR")
 				isShowingCursor = true
 				--log:Info("Show inspect cursor")
 			end
 		elseif (isShowingCursor) then
 			_G.LEDII_LZ_CURSOR_IGNORE = true
-			ResetCursor()
+			compat:ResetCursorTexture()
 			isShowingCursor = false
 			--log:Info("Reset inspect cursor")
 		end
@@ -900,7 +928,7 @@ local function class()
 	end
 
 	function obj:FilterHierarchy()
-		local searchText = string.lower(searchField:GetText())
+		local searchText = string.lower(searchField:GetText() or "")
 
 		filterCount = 0
 		local uLayer = hierarchy
@@ -1084,7 +1112,6 @@ local function class()
 		end
 
 		--local path = obj:FindLayerPath(childLayer)
-		local icon = 100000
 		local link = childLayer.name --obj:GetLayerPathString(path)
 		local type = ""
 		local displayRate = childLayer.ref.chance
@@ -1094,7 +1121,7 @@ local function class()
 
 		--Set data of frame row
 		frames.row:Show()
-		frames.icon:SetTexture(icon)
+		frames.icon:SetTexture(nil)
 		frames.icon:Hide()
 		frames.linkLabel:SetText(link)
 		frames.typeLabel:SetText(type)
@@ -1131,7 +1158,7 @@ local function class()
 		frames.groupColumn, frames.groupLabel = obj:CreateLabeledColumn(frames.row, columnRatios)
 		frames.groupColumn:SetPoint("RIGHT")
 
-		frames.icon = frames.iconColumn:CreateTexture("Icon", "OVERLAY")
+		frames.icon = frames.iconColumn:CreateTexture(nil, "OVERLAY")
 		frames.icon:SetWidth(rowHeight)
 		frames.icon:SetHeight(rowHeight)
 		frames.icon:SetPoint("CENTER")
@@ -1214,12 +1241,18 @@ local function class()
 	end
 
 	function obj:AppendChatLinkFromRowFrame(rowFrame)
+		--Group header rows carry no item
+		if (rowFrame.itemPayload == nil) then return end
+
 		--log:Info("Append chat link...")
 		local editBox = DEFAULT_CHAT_FRAME.editBox
 		editBox:SetText(editBox:GetText() .. rowFrame.itemPayload.link)
 	end
 
 	function obj:DressUpFromRowFrame(rowFrame)
+		--Group header rows carry no item
+		if (rowFrame.itemPayload == nil) then return end
+
 		--log:Info("Equipping item: " .. rowFrame.itemPayload.link)
 		DressUpItemLink(rowFrame.itemPayload.link)
 	end
@@ -1296,8 +1329,11 @@ local function class()
 		local valid = { "Skinnable", "Minable", "Gatherable", "Salvageable" }
 
 		for i = 1, GameTooltip:NumLines() do
-			local line = _G["GameTooltipTextLeft" .. i]:GetText()
-			local lineR, lineG, lineB = _G["GameTooltipTextLeft" .. i]:GetTextColor()
+			local lineFrame = _G["GameTooltipTextLeft" .. i]
+			local line = lineFrame and lineFrame:GetText()
+			if (line == nil) then break end
+
+			local lineR, lineG, lineB = lineFrame:GetTextColor()
 			local hasValidLevel = (lineR < 1.0)
 
 			--log:Info("Line: " .. line .. " (Color: " .. lineR .. ", " .. lineG .. ", " .. lineB .. ")")

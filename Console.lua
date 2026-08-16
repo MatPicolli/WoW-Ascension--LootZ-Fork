@@ -3,6 +3,7 @@ local log = _G.LEDII_LZ_LOG
 local const = _G.LEDII_LZ_CONST
 local render = _G.LEDII_LZ_RENDER
 local utils = _G.LEDII_LZ_UTILS
+local compat = _G.LEDII_LZ_COMPAT
 
 local function PrivateClass()
 	local obj = {}
@@ -61,6 +62,18 @@ local function PrivateClass()
 
 	function obj:GetUnloadedCreatureName(index)
 		if (index == nil) then return end
+
+		--3.3.5a cannot resolve a creature name from an entry id, the client
+		--only knows names it has actually seen. Use a name we recorded before,
+		--otherwise show the id so the loot table is still browsable.
+		if (compat.isLegacyClient) then
+			local dataUnit = utils:GetTrackedUnitData(index, false)
+			if (dataUnit ~= nil and dataUnit.name ~= nil) then
+				return dataUnit.name
+			end
+
+			return "Creature #" .. index
+		end
 
 		--Create custom unit link
 		local guid = "Creature-0-0-0-0-" .. index .. "-0"
