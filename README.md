@@ -76,6 +76,10 @@ Useful commands (`/lz` works too):
 /lootz object 1731       show a loot table by object id
 /lootz keybind           rebind the modifier key (SHIFT / CTRL / ALT)
 /lootz stats gather      stop or resume recording your own loot
+/lootz companion         credit loot that a companion picks up for you
+/lootz shared            use (or ignore) statistics shared by other players
+/lootz export            show where your statistics are saved
+/lootz debug             log loot events, for reporting problems
 /lootz reset             wipe everything the addon recorded
 ```
 
@@ -83,6 +87,96 @@ The panel has two modes, switched with the button in its header:
 
 - **Data** - the loot table from the database.
 - **Stats** - what *you* have actually looted, counted per creature.
+
+---
+
+## Loot picked up by a companion (Lootbot 3000)
+
+A companion that loots for you never opens a loot window, so the addon has
+nothing to attach the loot to. The only trace left is the chat line
+*"You receive loot: ..."*, which does not say which creature it came from.
+
+Turn it on with:
+
+```
+/lootz companion
+```
+
+The addon then watches the combat log for creatures dying and credits chat
+loot to the corpse that died most recently. What that means in practice:
+
+- **It is accurate when you kill things one at a time**, which is the normal
+  case when a loot bot is doing the work.
+- **Turn it off while grouped or AoE grinding.** With several corpses on the
+  ground it cannot tell which one the item came from, and a wrong guess ends
+  up in the statistics you might later share.
+- Loot that arrives with no recent kill is ignored rather than guessed at, and
+  it tells you when that happens.
+- A corpse is counted once, no matter how many items come off it, and the loot
+  window path and the companion path share one list of looted corpses, so
+  nothing is ever counted twice.
+
+Note that a corpse counts as a sample only once something is actually looted
+from it, exactly like hand looting. Corpses that drop nothing are not counted
+by either path, so the drop rates lean slightly high on both.
+
+**If it still does not pick anything up**, run `/lootz debug`, kill something,
+let the bot loot it, and look at the chat output. It prints every loot event
+the addon sees (`UNIT_DIED`, `CHAT_MSG_LOOT`, `LOOT_OPENED`). If nothing at all
+appears, then Ascension's bot delivers the items in a way the client never
+reports, and no addon can see it - send me that output and I will work from
+there.
+
+---
+
+## Where your data is saved, and how to share it
+
+Type `/lootz export` in game and it prints the path plus how much you have
+gathered. The file is:
+
+```
+WTF\Account\<YOUR ACCOUNT>\SavedVariables\LootZ.lua
+```
+
+It is written when you log out or `/reload`, **not** while you play - so
+`/reload` before copying it. It is per account, not per character, and it
+survives reinstalling the addon. If you want a backup, that one file is all you
+need.
+
+### Sharing it (and pooling with other people)
+
+Copy that `LootZ.lua` somewhere, then turn it into a shareable file:
+
+```
+lua5.1 Tools/MergeStats.lua Database/Shared/SharedStats.lua path/to/LootZ.lua
+```
+
+Commit `Database/Shared/SharedStats.lua` and anyone who downloads the addon
+gets your numbers. The addon loads it at startup and **merges** it with each
+player's own statistics in the Stats view, so downloading someone else's data
+never overwrites your own. Anyone can hide it again with `/lootz shared`.
+
+To pool data from several players, pass every file at once - looting counts and
+drop counts are added together, and the smallest and largest stack sizes are
+kept:
+
+```
+lua5.1 Tools/MergeStats.lua Database/Shared/SharedStats.lua alice.lua bob.lua carol.lua
+```
+
+The tool also reads the file it produced last time, so you can keep adding to
+it as people send you more:
+
+```
+lua5.1 Tools/MergeStats.lua new.lua Database/Shared/SharedStats.lua dave.lua
+```
+
+Output is sorted and deterministic, so git diffs stay readable and two runs on
+the same input produce byte-identical files.
+
+> You need Lua 5.1 to run the tool (`sudo apt install lua5.1`, or
+> `brew install lua@5.1`). If you would rather not, just commit your raw
+> `LootZ.lua` to the repo and I - or anyone else - can convert it.
 
 ---
 
@@ -147,7 +241,8 @@ Fixes made along the way, which also apply to the original:
 There is a mock of the 3.3.5a API in `Tools/`, so the addon can be run outside
 of the game. It loads every file listed in `LootZ.toc`, then plays through a
 session: login, looting a creature, the tooltip, opening the panel, the sort and
-data buttons, the row hotkeys, every slash command, a world object, and a
+data buttons, the row hotkeys, every slash command, a world object, companion
+looting, shared statistics (round tripped through `Tools/MergeStats.lua`), and a
 missing database.
 
 ```

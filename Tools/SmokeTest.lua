@@ -336,6 +336,7 @@ check(printedContains("Statistics not supported for object"), "clicking a world 
 Mock.lootSlots = { { name = "Copper Ore", quantity = 1, quality = 1, link = Mock.items[2770].link } }
 Mock.FireEvent("LOOT_OPENED")
 Mock.RunFrames(2)
+Mock.FireEvent("LOOT_CLOSED")
 check(_G.LediiData_LootZ.units[CREATURE_ENTRY].lootingCount == before,
 	"object loot was not attributed to the targeted creature")
 
@@ -345,6 +346,149 @@ local ok, err = pcall(slash, "object 1731")
 check(ok, "object loot table opened" .. (ok and "" or (" -> " .. tostring(err))))
 
 _G.GameTooltipTextLeft1:SetText(nil)
+
+--Companion looting ----------------------------------------------------------
+
+section("Companion looting (Lootbot 3000)")
+
+--The commands run earlier left gathering switched off, which is worth checking
+check(_G.LediiData_LootZ.statsGatherDisabled == true, "/lootz stats left gathering disabled")
+_G.LediiData_LootZ.statsGatherDisabled = false
+
+--Move past the grace period that follows the loot window closing above
+Mock.RunFrames(20, 0.2)
+
+local BOT_ENTRY = 4242
+local BOT_GUID = "0xF130001092000001"
+Mock.AddItem(4321, { name = "Bot Salvage", rarity = 2, type = "Trade Goods", subtype = "Parts" })
+
+--A creature dies in the combat log, no loot window is ever opened
+local function KillCreature(guid, name)
+	Mock.FireEvent("COMBAT_LOG_EVENT_UNFILTERED",
+		Mock.time, "UNIT_DIED", "0x0000000000000001", "Player", 0, guid, name, 0)
+end
+
+local function BotLoot(link, count)
+	local suffix = count and ("x" .. count .. ".") or "."
+	Mock.FireEvent("CHAT_MSG_LOOT", "You receive loot: " .. link .. suffix)
+end
+
+--Off by default, nothing should be recorded
+KillCreature(BOT_GUID, "Rusty Construct")
+BotLoot(Mock.items[4321].link, 2)
+check(_G.LediiData_LootZ.units[BOT_ENTRY] == nil, "companion looting is off by default")
+
+slash("companion")
+check(_G.LediiData_LootZ.companionLootEnabled == true, "/lootz companion enabled it")
+
+KillCreature(BOT_GUID, "Rusty Construct")
+BotLoot(Mock.items[4321].link, 2)
+Mock.FireEvent("CHAT_MSG_MONEY", "You loot 3 Silver, 40 Copper")
+
+local botData = _G.LediiData_LootZ.units[BOT_ENTRY]
+check(botData ~= nil, "loot picked up by the companion was recorded")
+check(botData ~= nil and botData.name == "Rusty Construct", "it was credited to the creature that died")
+check(botData ~= nil and botData.lootingCount == 1, "the corpse counted as one looting")
+check(botData ~= nil and botData.items[4321] ~= nil and botData.items[4321].totalAmount == 2,
+	"the item and its stack size were recorded")
+check(botData ~= nil and botData.money ~= nil and botData.money.totalAmount == 340,
+	"money picked up by the companion was recorded")
+
+--More loot from the same corpse must not count as another looting
+BotLoot(Mock.items[1234].link)
+check(_G.LediiData_LootZ.units[BOT_ENTRY].lootingCount == 1, "a second item from the same corpse did not count again")
+check(_G.LediiData_LootZ.units[BOT_ENTRY].items[1234] ~= nil, "the second item was still recorded")
+
+--A second corpse counts again
+local BOT_GUID_2 = "0xF130001092000002"
+KillCreature(BOT_GUID_2, "Rusty Construct")
+BotLoot(Mock.items[4321].link, 1)
+check(_G.LediiData_LootZ.units[BOT_ENTRY].lootingCount == 2, "a second corpse counted as a new looting")
+
+--Manual looting must not be double counted through the chat message
+local MANUAL_GUID = "0xF130001092000003"
+Mock.SetUnit("target", { guid = MANUAL_GUID, name = "Rusty Construct", level = 5, dead = true, type = "Mechanical" })
+Mock.FireEvent("PLAYER_TARGET_CHANGED")
+Mock.ClickMouse("RightButton")
+Mock.lootSlots = { { name = "Bot Salvage", quantity = 1, quality = 2, link = Mock.items[4321].link } }
+KillCreature(MANUAL_GUID, "Rusty Construct")
+Mock.FireEvent("LOOT_OPENED")
+BotLoot(Mock.items[4321].link)
+Mock.FireEvent("LOOT_CLOSED")
+check(_G.LediiData_LootZ.units[BOT_ENTRY].lootingCount == 3, "a hand looted corpse counted exactly once")
+check(_G.LediiData_LootZ.units[BOT_ENTRY].items[4321].totalCount == 3,
+	"the item was counted once for the hand looted corpse, not twice")
+
+--Loot with no recent kill is ignored rather than guessed at
+Mock.time = Mock.time + 120
+BotLoot(Mock.items[1234].link)
+check(printedContains("no recent kill"), "loot that cannot be matched to a kill is reported, not guessed")
+
+slash("companion")
+check(_G.LediiData_LootZ.companionLootEnabled == false, "/lootz companion turned it back off")
+
+--Shared statistics ----------------------------------------------------------
+
+section("Shared statistics")
+
+--Round trip the real tool: saved variables -> MergeStats.lua -> the addon.
+--This is what proves the file the tool writes is the file the addon reads.
+local tmpDir = os.getenv("TMPDIR") or "/tmp"
+local savedVarsPath = tmpDir .. "/lootz_smoke_savedvars.lua"
+local sharedPath = tmpDir .. "/lootz_smoke_shared.lua"
+
+local savedVars = assert(io.open(savedVarsPath, "w"))
+savedVars:write([[
+LediiData_LootZ = {
+	["units"] = {
+		[4242] = {
+			["name"] = "Rusty Construct",
+			["lootingCount"] = 97,
+			["money"] = { ["name"] = "Money", ["minAmount"] = 100, ["maxAmount"] = 900, ["totalAmount"] = 40000, ["totalCount"] = 50 },
+			["items"] = {
+				[4321] = { ["name"] = "Bot Salvage", ["minAmount"] = 1, ["maxAmount"] = 5, ["totalAmount"] = 200, ["totalCount"] = 90 },
+				[5678] = { ["name"] = "Ornate Blade", ["minAmount"] = 1, ["maxAmount"] = 1, ["totalAmount"] = 3, ["totalCount"] = 3 },
+			},
+		},
+	},
+}
+]])
+savedVars:close()
+
+local interpreter = arg[-1] or "lua5.1"
+local toolStatus = os.execute(string.format(
+	'%s "%s/Tools/MergeStats.lua" "%s" "%s" > /dev/null',
+	interpreter, root, sharedPath, savedVarsPath))
+check(toolStatus == 0 or toolStatus == true, "Tools/MergeStats.lua converted a saved variables file")
+
+_G.LEDII_LZ_SHARED = nil
+local sharedChunk = loadfile(sharedPath)
+check(sharedChunk ~= nil, "the generated shared file is valid Lua")
+if (sharedChunk ~= nil) then sharedChunk() end
+check(_G.LEDII_LZ_SHARED ~= nil and _G.LEDII_LZ_SHARED.units[BOT_ENTRY] ~= nil,
+	"the addon loads exactly what the tool wrote")
+
+os.remove(savedVarsPath)
+os.remove(sharedPath)
+
+local utils = _G.LEDII_LZ_UTILS
+utils:InvalidateStatsCache()
+
+local merged = utils:GetTrackedUnitData(BOT_ENTRY, false)
+check(merged ~= nil and merged.lootingCount == 100, "shared lootings were added to your own (97 + 3)")
+check(merged ~= nil and merged.items[5678] ~= nil, "an item only present in the shared data showed up")
+check(merged ~= nil and merged.items[4321].totalCount == 93, "counts for a shared item were summed")
+check(merged ~= nil and merged.items[4321].maxAmount == 5, "the largest stack size across both was kept")
+check(_G.LediiData_LootZ.units[BOT_ENTRY].lootingCount == 3, "merging did not touch your own saved data")
+
+slash("shared")
+local ownOnly = utils:GetTrackedUnitData(BOT_ENTRY, false)
+check(ownOnly ~= nil and ownOnly.lootingCount == 3, "/lootz shared hid the shared statistics again")
+slash("shared")
+
+local okExport = pcall(slash, "export")
+check(okExport, "/lootz export reported where the data is saved")
+check(printedContains("SavedVariables"), "the save path was printed")
 
 --Missing database -----------------------------------------------------------
 

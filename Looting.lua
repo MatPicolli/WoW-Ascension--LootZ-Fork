@@ -12,6 +12,19 @@ local function class()
 	local lootSourceLocked = false
 	local lootObjectLocked = false
 
+	--Companion looting (Ascension's Lootbot 3000 and friends). Nothing ever
+	--opens a loot window, the items simply appear, so the only trace is the
+	--chat message. It is matched against the creatures that just died.
+	local recentKills = {}
+	local recentKillMax = 12
+	local recentKillTimeout = 30.0
+	local lootWindowOpen = false
+	local lootWindowOpenedAt = 0
+	--Not 0: that would read as "a window just closed" at the start of a session
+	local lootWindowClosedAt = -math.huge
+	local lootWindowSettleTime = 1.5
+	local lootWindowTimeout = 30.0
+
 	function obj:OnTargetChanged()
 		obj:CleanupCache("target")
 		--obj:TryCacheUnit("target")
@@ -171,6 +184,9 @@ local function class()
 
 	function obj:SaveUnit(lootSrc, dataUnit)
 		LediiData_LootZ.units[lootSrc.unitId] = dataUnit
+
+		--Shared statistics are merged with these numbers, drop the merge
+		utils:InvalidateStatsCache()
 	end
 
 	function obj:OnLootReady()
@@ -201,9 +217,12 @@ local function class()
 
 	function obj:OnLootOpened()
 		--log:Info("OnLootOpened")
+		lootWindowOpen = true
+		lootWindowOpenedAt = GetTime()
 
 		--Validate disabled
 		obj:PrepareCache()
+		obj:DebugLog("LOOT_OPENED source=" .. tostring(currentLootSource and currentLootSource.name))
 		if (LediiData_LootZ.statsGatherDisabled) then return end
 
 		--Validate sources
@@ -292,6 +311,148 @@ local function class()
 		lootSlot.quantity = total
 
 		dataUnit.money = obj:RegisterSlot(lootSlot, dataUnit.money)
+	end
+
+	--Companion looting -------------------------------------------------------
+
+	function obj:IsCompanionLootEnabled()
+		return LediiData_LootZ ~= nil and LediiData_LootZ.companionLootEnabled == true
+	end
+
+	function obj:OnLootClosed()
+		lootWindowOpen = false
+		lootWindowClosedAt = GetTime()
+	end
+
+	function obj:OnUnitDied(destGUID, destName)
+		if (destGUID == nil) then return end
+
+		local ids = utils:BreakGUID(destGUID)
+		if (ids.index == nil) then return end
+		if (ids.type ~= "Creature" and ids.type ~= "Vehicle") then return end
+
+		--Newest first, so the most recent corpse wins
+		local kill = {}
+		kill.guid = destGUID
+		kill.name = destName
+		kill.unitId = ids.index
+		kill.time = GetTime()
+		table.insert(recentKills, 1, kill)
+
+		while (#recentKills > recentKillMax) do
+			table.remove(recentKills)
+		end
+
+		obj:DebugLog("UNIT_DIED " .. tostring(destName) .. " (id " .. ids.index .. ")")
+	end
+
+	function obj:FindRecentKill()
+		local now = GetTime()
+
+		for i = 1, #recentKills do
+			local kill = recentKills[i]
+			if (now - kill.time <= recentKillTimeout) then
+				return kill
+			end
+		end
+
+		return nil
+	end
+
+	function obj:IsLootWindowOpen()
+		if (not lootWindowOpen) then return false end
+
+		--A LOOT_CLOSED that never arrives would silently stop all companion
+		--tracking, so never trust the flag on its own
+		if (GetTime() - lootWindowOpenedAt > lootWindowTimeout) then return false end
+		if (LootFrame ~= nil and LootFrame.IsShown ~= nil and not LootFrame:IsShown()) then return false end
+
+		return true
+	end
+
+	function obj:IsCompanionLootWindow()
+		--Anything that arrives while a loot window is open, or right after one
+		--closed, is already handled by OnLootOpened
+		if (obj:IsLootWindowOpen()) then return false end
+		if (GetTime() < lootWindowClosedAt + lootWindowSettleTime) then return false end
+
+		return true
+	end
+
+	function obj:OnChatLoot(message)
+		obj:DebugLog("CHAT_MSG_LOOT " .. tostring(message))
+
+		if (not obj:IsCompanionLootEnabled()) then return end
+		if (LediiData_LootZ.statsGatherDisabled) then return end
+		if (not obj:IsCompanionLootWindow()) then return end
+		if (not compat:IsSelfLootMessage(message)) then return end
+
+		local itemId, quantity, name = compat:ParseLootMessage(message)
+		if (itemId == nil) then return end
+
+		local kill = obj:FindRecentKill()
+		if (kill == nil) then
+			log:Info(const:Color("WARNING") .. "Companion loot with no recent kill to match, ignored.")
+			return
+		end
+
+		local lootSlot = {}
+		lootSlot.name = name or ("Item " .. itemId)
+		lootSlot.quantity = quantity
+		lootSlot.itemId = itemId
+
+		local dataUnit = obj:RegisterCompanionKill(kill)
+		dataUnit.items[itemId] = obj:RegisterSlot(lootSlot, dataUnit.items[itemId])
+		obj:SaveUnit(kill, dataUnit)
+
+		obj:DebugLog("companion loot " .. lootSlot.name .. " x" .. quantity .. " -> " .. kill.name)
+	end
+
+	function obj:OnChatMoney(message)
+		obj:DebugLog("CHAT_MSG_MONEY " .. tostring(message))
+
+		if (not obj:IsCompanionLootEnabled()) then return end
+		if (LediiData_LootZ.statsGatherDisabled) then return end
+		if (not obj:IsCompanionLootWindow()) then return end
+
+		local total = compat:ParseMoneyString(message)
+		if (total <= 0) then return end
+
+		local kill = obj:FindRecentKill()
+		if (kill == nil) then return end
+
+		local lootSlot = {}
+		lootSlot.name = "Money"
+		lootSlot.quantity = total
+
+		local dataUnit = obj:RegisterCompanionKill(kill)
+		dataUnit.money = obj:RegisterSlot(lootSlot, dataUnit.money)
+		obj:SaveUnit(kill, dataUnit)
+	end
+
+	--Counts the corpse once, the first time anything is attributed to it. The
+	--guid cache is shared with the loot window path, so a corpse can never be
+	--counted by both.
+	function obj:RegisterCompanionKill(kill)
+		obj:PrepareCache()
+		local dataUnit = obj:PrepareUnitData(kill)
+
+		if (obj:TryCacheGUID(kill.guid)) then
+			obj:RegisterLooting(kill, dataUnit)
+		end
+
+		return dataUnit
+	end
+
+	function obj:OnLootWindowOpened()
+		lootWindowOpen = true
+	end
+
+	function obj:DebugLog(text)
+		if (LediiData_LootZ == nil) then return end
+		if (not LediiData_LootZ.debugEnabled) then return end
+
+		log:Info(const:Color("TEXT_HIGHLIGHT") .. "[debug] " .. const:Color("TEXT") .. text)
 	end
 
 	function obj:RegisterSlot(lootSlot, dataSlot)

@@ -18,6 +18,7 @@ Events.lua
 Console.lua
 
 Database/Setup.lua
+Database/Shared/SharedStats.lua
 Database/WotLK/CreatureLoot.lua
 Database/WotLK/DisenchantLoot.lua
 Database/WotLK/FishingLoot.lua

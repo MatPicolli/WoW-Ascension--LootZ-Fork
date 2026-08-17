@@ -66,6 +66,25 @@ local function PrivateClass()
 		loot:OnLootReady()
 	end
 
+	function obj:OnLootClosed()
+		loot:OnLootClosed()
+	end
+
+	function obj:OnChatLoot(message)
+		loot:OnChatLoot(message)
+	end
+
+	function obj:OnChatMoney(message)
+		loot:OnChatMoney(message)
+	end
+
+	function obj:OnCombatLogEvent(...)
+		local data = compat:ReadCombatLogEvent(...)
+		if (data.event ~= "UNIT_DIED" and data.event ~= "PARTY_KILL") then return end
+
+		loot:OnUnitDied(data.destGUID, data.destName)
+	end
+
 	function obj:OnHyperlinkClicked(link, text, button)
 		--Todo
 	end
@@ -90,6 +109,14 @@ local function OnEvent(self, event, ...)
 	elseif (event == "LOOT_READY") then
 		hasLootReadyEvent = true
 		class:OnLootReady(...)
+	elseif (event == "LOOT_CLOSED") then
+		class:OnLootClosed(...)
+	elseif (event == "CHAT_MSG_LOOT") then
+		class:OnChatLoot(...)
+	elseif (event == "CHAT_MSG_MONEY") then
+		class:OnChatMoney(...)
+	elseif (event == "COMBAT_LOG_EVENT_UNFILTERED") then
+		class:OnCombatLogEvent(...)
 	elseif (event == "UPDATE_MOUSEOVER_UNIT") then
 		class:OnMouseoverChanged(...)
 	elseif (event == "PLAYER_TARGET_CHANGED") then
@@ -117,8 +144,15 @@ end
 frame = CreateFrame("Frame", "LootZEventFrame")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("LOOT_OPENED")
+frame:RegisterEvent("LOOT_CLOSED")
 frame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
+
+--Needed to credit loot that a companion picks up for you, where no loot
+--window is ever opened
+frame:RegisterEvent("CHAT_MSG_LOOT")
+frame:RegisterEvent("CHAT_MSG_MONEY")
+frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 --Events that only exist on some clients
 local function TryRegisterEvent(name)
