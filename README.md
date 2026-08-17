@@ -112,6 +112,7 @@ Useful commands (`/lz` works too):
 /lootz companion         credit loot that a companion picks up for you
 /lootz shared            use (or ignore) statistics shared by other players
 /lootz export            show where your statistics are saved
+/lootz diag              report how kills are being detected
 /lootz debug             log loot events, for reporting problems
 /lootz reset             wipe everything the addon recorded
 ```
@@ -137,18 +138,30 @@ Turn it on with:
 
 ### How a kill is spotted
 
-Ascension's combat log does not report deaths to addons at all, so the addon
-uses three sources, best first:
+Ascension's combat log does not report deaths to addons at all, and at max
+level there is no experience message either, so the addon uses four sources:
 
-1. **The combat log.** Carries a GUID, so the creature is known exactly. Used
-   wherever it works.
-2. **The kill text in chat** - *"Scourge Champion dies, you gain 213
-   experience."* This is the one that works on Ascension. It only carries a
-   name, so the addon remembers the name of every creature you target or hover,
-   along with its id, and looks the name up when a kill is reported. **Seeing a
-   creature once, ever, is enough** - the list is saved between sessions.
-3. **A corpse under the cursor.** Only used while the first two have reported
-   nothing at all. This is why it used to need the mouse on the mob.
+1. **Watching creatures die.** Any creature seen alive and then seen dead, on
+   your target, mouseover or focus, is a kill. This needs no combat log and no
+   experience, so it is the one that works at max level. You do not need the
+   mouse on it at the moment it dies, and the loot can turn up long afterwards.
+2. **The combat log.** Carries a GUID, so the creature is known exactly. Used
+   wherever it works, which is not on Ascension.
+3. **The kill text in chat** - *"Scourge Champion dies, you gain 213
+   experience."* Below max level this catches kills you never targeted. It only
+   carries a name, so the addon remembers the name and id of every creature you
+   target or hover; **seeing a creature once, ever, is enough**, and the list is
+   saved between sessions.
+4. **A corpse under the cursor**, only while nothing else has reported a kill.
+
+A corpse that was already dead the first time you saw it is somebody else's
+kill, and is never counted.
+
+**What this means at max level:** a creature has to pass under your target,
+mouseover or focus at some point while alive. Anything you kill purely with
+AoE, without ever touching it, cannot be counted, so sample counts run low and
+drop rates read slightly high. Tab targeting through a pull is enough to fix
+that.
 
 ### How the counting works
 
@@ -175,12 +188,11 @@ twice.
 - **Still turn it off in a group.** Several people killing different things at
   once is beyond what a name and a timestamp can sort out.
 
-At max level there is no experience message, so kills fall back to source 1 or
-3. If you grind at max level with a companion, say so and it can be looked at.
-
-`/lootz options` shows how many kills have been seen, which is the quickest way
-to tell whether this is working. `/lootz debug` prints every loot event, the
-raw combat log arguments, and the reason any kill was ignored.
+`/lootz diag` is the quickest way to see whether this is working. It reports
+how many kills were found, broken down by which of the four sources found them,
+how many creature names are remembered, and whether the combat log is saying
+anything at all. `/lootz debug` additionally prints every loot event as it
+happens and the reason any kill was ignored.
 
 ---
 
