@@ -27,15 +27,16 @@ local function class()
 	local lootWindowClosedAt = -math.huge
 	local lootWindowSettleTime = 1.5
 	local lootWindowTimeout = 30.0
+	local lastWindowWasCreature = true
 
 	function obj:OnTargetChanged()
 		obj:CleanupCache("target")
-		--obj:TryCacheUnit("target")
+		obj:CacheUnitName("target")
 	end
 
 	function obj:OnMouseoverChanged()
 		obj:CleanupCache("mouseover")
-		--obj:TryCacheUnit("mouseover")
+		obj:CacheUnitName("mouseover")
 	end
 
 	function obj:PrepareCache()
@@ -225,8 +226,17 @@ local function class()
 
 		--Validate disabled
 		obj:PrepareCache()
+		lastWindowWasCreature = (#openedLootSources > 0)
 		obj:DebugLog("LOOT_OPENED source=" .. tostring(currentLootSource and currentLootSource.name))
 		if (LediiData_LootZ.statsGatherDisabled) then return end
+
+		--Companion mode counts the kill and reads the items from chat, which
+		--also covers looting by hand. Recording here as well would count twice.
+		if (obj:IsCompanionLootEnabled()) then
+			obj:DebugLog("loot window not recorded, companion looting is on")
+			openedLootSources = {}
+			return
+		end
 
 		--Validate sources
 		if (#openedLootSources == 0) then
@@ -317,16 +327,71 @@ local function class()
 	end
 
 	--Companion looting -------------------------------------------------------
+	--
+	--A companion that loots for you never opens a loot window, so the items only
+	--show up as chat messages that do not name the creature. Kills are tracked
+	--separately and the two are matched up.
+	--
+	--On some servers (Ascension among them) the combat log never reports a
+	--single death to addons, so there are three sources, best first:
+	--  1. the combat log, which carries a guid and therefore a creature id
+	--  2. the kill text in chat ("X dies, you gain N experience"), which only
+	--     carries a name, resolved through a remembered name to id map
+	--  3. a corpse under the cursor, used only while the first two are silent
 
 	function obj:IsCompanionLootEnabled()
 		return LediiData_LootZ ~= nil and LediiData_LootZ.companionLootEnabled == true
 	end
 
-	function obj:OnLootClosed()
-		lootWindowOpen = false
-		lootWindowClosedAt = GetTime()
+	function obj:IsDebugEnabled()
+		return LediiData_LootZ ~= nil and LediiData_LootZ.debugEnabled == true
 	end
 
+	function obj:DebugLog(text)
+		if (not obj:IsDebugEnabled()) then return end
+
+		log:Info(const:Color("TEXT_HIGHLIGHT") .. "[debug] " .. const:Color("TEXT") .. text)
+	end
+
+	function obj:GetCompanionState()
+		return deathsSeen, #recentKills, recentKillTimeout
+	end
+
+
+
+	--Creature names, so a kill that is only reported as text can still be
+	--credited to the right creature id. Kept in saved variables, so a creature
+	--only has to be seen once ever.
+	function obj:RememberUnitName(name, unitId)
+		if (name == nil or unitId == nil) then return end
+
+		obj:PrepareCache()
+		if (LediiData_LootZ.names == nil) then
+			LediiData_LootZ.names = {}
+		end
+
+		LediiData_LootZ.names[name] = unitId
+	end
+
+	function obj:FindUnitIdByName(name)
+		if (name == nil) then return nil end
+		if (LediiData_LootZ == nil or LediiData_LootZ.names == nil) then return nil end
+
+		return LediiData_LootZ.names[name]
+	end
+
+	function obj:CacheUnitName(unitId)
+		local guid = UnitGUID(unitId)
+		if (guid == nil) then return end
+		if (UnitIsPlayer(unitId)) then return end
+
+		local ids = utils:BreakGUID(guid)
+		obj:RememberUnitName(UnitName(unitId), ids.index)
+	end
+
+
+
+	--Kills
 	--Things that are definitely not a lootable creature. Anything else is
 	--accepted, including an unrecognised guid type: a server using custom guid
 	--ranges would otherwise record no deaths at all.
@@ -338,6 +403,54 @@ local function class()
 		["DynamicObject"] = true,
 		["Transport"] = true,
 	}
+
+	--Records a kill, counting it as one sample the first time it is seen.
+	--With a companion looting there is no per corpse loot window, so the kill
+	--is what defines a sample, not the loot.
+	function obj:TouchKill(unitId, name, guid, source)
+		if (unitId == nil) then
+			obj:DebugLog("kill ignored, no creature id known for " .. tostring(name))
+			return nil
+		end
+
+		--A corpse already in the list is the same sample, not a new one
+		if (guid ~= nil) then
+			for i = 1, #recentKills do
+				if (recentKills[i].guid == guid) then return recentKills[i] end
+			end
+		end
+
+		local kill = {}
+		kill.guid = guid
+		kill.name = name or ("Creature #" .. unitId)
+		kill.unitId = unitId
+		kill.time = GetTime()
+
+		table.insert(recentKills, 1, kill)
+		while (#recentKills > recentKillMax) do
+			table.remove(recentKills)
+		end
+
+		--Only kills reported by an event prove the addon can see deaths at all.
+		--A corpse under the cursor must not switch that fallback off.
+		if (source ~= "corpse") then
+			deathsSeen = deathsSeen + 1
+		end
+
+		obj:RememberUnitName(name, unitId)
+
+		--Counting shares the looted corpse list with the loot window path, so a
+		--corpse can never be counted by both
+		local isNewCorpse = (guid == nil) or obj:TryCacheGUID(guid)
+		if (isNewCorpse and obj:IsCompanionLootEnabled() and not LediiData_LootZ.statsGatherDisabled) then
+			local dataUnit = obj:PrepareUnitData(kill)
+			obj:RegisterLooting(kill, dataUnit)
+			obj:SaveUnit(kill, dataUnit)
+		end
+
+		obj:DebugLog("kill " .. kill.name .. " id " .. unitId .. " from " .. tostring(source))
+		return kill
+	end
 
 	function obj:OnUnitDied(destGUID, destName)
 		if (destGUID == nil) then return end
@@ -352,20 +465,27 @@ local function class()
 			return
 		end
 
-		--Newest first, so the most recent corpse wins
-		local kill = {}
-		kill.guid = destGUID
-		kill.name = destName
-		kill.unitId = ids.index
-		kill.time = GetTime()
-		table.insert(recentKills, 1, kill)
-		deathsSeen = deathsSeen + 1
+		obj:TouchKill(ids.index, destName, destGUID, "combatlog")
+	end
 
-		while (#recentKills > recentKillMax) do
-			table.remove(recentKills)
+	--"Scourge Champion dies, you gain 213 experience."
+	function obj:OnKillText(message)
+		obj:DebugLog("kill text " .. tostring(message))
+
+		local name = compat:ParseKillMessage(message)
+		if (name == nil) then return end
+
+		local unitId = obj:FindUnitIdByName(name)
+		if (unitId == nil) then
+			obj:DebugLog("kill text ignored, never seen a creature called " .. name)
+
+			--Something died that cannot be identified, so whatever is looted
+			--next must not be credited to an earlier creature
+			recentKills = {}
+			return
 		end
 
-		obj:DebugLog("death " .. tostring(destName) .. " id " .. ids.index .. " type " .. tostring(ids.type))
+		obj:TouchKill(unitId, name, nil, "text")
 	end
 
 	function obj:FindRecentKill()
@@ -378,9 +498,9 @@ local function class()
 			end
 		end
 
-		--Nothing from the combat log. If it never reported a single death then
-		--it cannot be relied on here at all, so fall back to a corpse the
-		--player is actually looking at.
+		--No kill was ever reported by an event, so fall back to a corpse the
+		--player is looking at. This is why the mouse has to be on the creature
+		--when the other two sources are silent.
 		if (deathsSeen == 0) then
 			return obj:FindTargetedCorpse()
 		end
@@ -396,8 +516,8 @@ local function class()
 			if (obj:IsValidLootTarget(unitId)) then
 				local source = obj:BuildLootSource(unitId)
 				if (source.unitId ~= nil) then
-					obj:DebugLog("no combat log deaths, using " .. unitId .. " corpse " .. tostring(source.name))
-					return source
+					obj:DebugLog("no reported deaths, using " .. unitId .. " corpse " .. tostring(source.name))
+					return obj:TouchKill(source.unitId, source.name, source.guid, "corpse")
 				end
 			end
 		end
@@ -412,10 +532,9 @@ local function class()
 		lastUnmatchedWarning = now
 
 		if (deathsSeen == 0) then
-			log:Info(const:Color("WARNING") .. "Companion loot ignored: no creature death has been seen at all.")
-			log:Info(const:Color("WARNING") .. "This server's combat log is not reporting kills to the addon.")
-			log:Info(const:Color("WARNING") .. "Type " .. const:Color("TEXT_HIGHLIGHT") .. "/lootz debug"
-				.. const:Color("WARNING") .. ", kill something, and report what it prints.")
+			log:Info(const:Color("WARNING") .. "Companion loot ignored: no kill has been reported at all.")
+			log:Info(const:Color("WARNING") .. "Keep the mouse over creatures as they die, or type "
+				.. const:Color("TEXT_HIGHLIGHT") .. "/lootz debug" .. const:Color("WARNING") .. " and report the output.")
 			return
 		end
 
@@ -428,12 +547,12 @@ local function class()
 			.. "s ago, and the limit is " .. recentKillTimeout .. "s.")
 	end
 
-	function obj:IsDebugEnabled()
-		return LediiData_LootZ ~= nil and LediiData_LootZ.debugEnabled == true
-	end
 
-	function obj:GetCompanionState()
-		return deathsSeen, #recentKills, recentKillTimeout
+
+	--Loot windows
+	function obj:OnLootClosed()
+		lootWindowOpen = false
+		lootWindowClosedAt = GetTime()
 	end
 
 	function obj:IsLootWindowOpen()
@@ -447,15 +566,23 @@ local function class()
 		return true
 	end
 
+	--Whether chat loot arriving now belongs to a creature.
+	--A creature's loot window is fine, the items arrive in chat either way and
+	--the corpse was already counted when it died. A chest, herb or ore node is
+	--not: its contents have nothing to do with the last kill.
 	function obj:IsCompanionLootWindow()
-		--Anything that arrives while a loot window is open, or right after one
-		--closed, is already handled by OnLootOpened
-		if (obj:IsLootWindowOpen()) then return false end
-		if (GetTime() < lootWindowClosedAt + lootWindowSettleTime) then return false end
+		if (obj:IsLootWindowOpen()) then return lastWindowWasCreature end
+
+		if (not lastWindowWasCreature and GetTime() < lootWindowClosedAt + lootWindowSettleTime) then
+			return false
+		end
 
 		return true
 	end
 
+
+
+	--Chat loot
 	function obj:OnChatLoot(message)
 		obj:DebugLog("CHAT_MSG_LOOT " .. tostring(message))
 
@@ -478,7 +605,7 @@ local function class()
 		lootSlot.quantity = quantity
 		lootSlot.itemId = itemId
 
-		local dataUnit = obj:RegisterCompanionKill(kill)
+		local dataUnit = obj:PrepareUnitData(kill)
 		dataUnit.items[itemId] = obj:RegisterSlot(lootSlot, dataUnit.items[itemId])
 		obj:SaveUnit(kill, dataUnit)
 
@@ -505,35 +632,11 @@ local function class()
 		lootSlot.name = "Money"
 		lootSlot.quantity = total
 
-		local dataUnit = obj:RegisterCompanionKill(kill)
+		local dataUnit = obj:PrepareUnitData(kill)
 		dataUnit.money = obj:RegisterSlot(lootSlot, dataUnit.money)
 		obj:SaveUnit(kill, dataUnit)
 	end
 
-	--Counts the corpse once, the first time anything is attributed to it. The
-	--guid cache is shared with the loot window path, so a corpse can never be
-	--counted by both.
-	function obj:RegisterCompanionKill(kill)
-		obj:PrepareCache()
-		local dataUnit = obj:PrepareUnitData(kill)
-
-		if (obj:TryCacheGUID(kill.guid)) then
-			obj:RegisterLooting(kill, dataUnit)
-		end
-
-		return dataUnit
-	end
-
-	function obj:OnLootWindowOpened()
-		lootWindowOpen = true
-	end
-
-	function obj:DebugLog(text)
-		if (LediiData_LootZ == nil) then return end
-		if (not LediiData_LootZ.debugEnabled) then return end
-
-		log:Info(const:Color("TEXT_HIGHLIGHT") .. "[debug] " .. const:Color("TEXT") .. text)
-	end
 
 	function obj:RegisterSlot(lootSlot, dataSlot)
 		if (dataSlot == nil) then

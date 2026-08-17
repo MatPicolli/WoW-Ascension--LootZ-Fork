@@ -192,7 +192,10 @@ Mock.knownEvents = {
 	CURSOR_UPDATE = true,
 	CHAT_MSG_LOOT = true,
 	CHAT_MSG_MONEY = true,
+	CHAT_MSG_COMBAT_XP_GAIN = true,
 	COMBAT_LOG_EVENT_UNFILTERED = true,
+	--Deliberately missing, like a client that does not report it:
+	--CHAT_MSG_COMBAT_HOSTILE_DEATH
 	--Deliberately missing on 3.3.5a: LOOT_READY, CURSOR_CHANGED,
 	--GLOBAL_MOUSE_UP, GLOBAL_MOUSE_DOWN
 }
@@ -253,6 +256,8 @@ function Mock.Install()
 	_G.GOLD_AMOUNT = "%d Gold"
 	_G.SILVER_AMOUNT = "%d Silver"
 	_G.COPPER_AMOUNT = "%d Copper"
+	_G.COMBATLOG_XPGAIN_FIRSTPERSON = "%s dies, you gain %d experience."
+	_G.COMBATLOG_XPGAIN_FIRSTPERSON_GROUP = "%s dies, you gain %d experience. (%s exp %s group bonus)"
 	_G.LOOT_ITEM_SELF = "You receive loot: %s."
 	_G.LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %sx%d."
 	_G.LOOT_ITEM_PUSHED_SELF = "You receive item: %s."
