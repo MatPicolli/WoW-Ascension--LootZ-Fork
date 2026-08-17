@@ -135,40 +135,52 @@ Turn it on with:
 /lootz companion
 ```
 
-The addon then watches the combat log for creatures dying and credits chat
-loot to the corpse that died most recently, within the last 90 seconds. What
-that means in practice:
+### How a kill is spotted
 
-- **It is accurate when you kill things one at a time**, which is the normal
-  case when a loot bot is doing the work.
-- **Turn it off while grouped or AoE grinding.** With several corpses on the
-  ground it cannot tell which one the item came from, and a wrong guess ends
-  up in the statistics you might later share.
-- Loot that cannot be matched to a kill is ignored rather than guessed at, and
-  the addon tells you exactly why - either the last kill was too long ago (it
-  prints how long), or no death has been seen at all.
-- If the combat log never reports a single death, the addon falls back to a
-  corpse you have targeted or are hovering. That fallback is only used while
-  the combat log has produced nothing, so it can never override a real kill.
-- Deaths are recorded even when the creature's GUID type is not one this
-  client recognises, because custom cores use custom GUID ranges.
-- A corpse is counted once, no matter how many items come off it, and the loot
-  window path and the companion path share one list of looted corpses, so
-  nothing is ever counted twice.
+Ascension's combat log does not report deaths to addons at all, so the addon
+uses three sources, best first:
 
-Note that a corpse counts as a sample only once something is actually looted
-from it, exactly like hand looting. Corpses that drop nothing are not counted
-by either path, so the drop rates lean slightly high on both.
+1. **The combat log.** Carries a GUID, so the creature is known exactly. Used
+   wherever it works.
+2. **The kill text in chat** - *"Scourge Champion dies, you gain 213
+   experience."* This is the one that works on Ascension. It only carries a
+   name, so the addon remembers the name of every creature you target or hover,
+   along with its id, and looks the name up when a kill is reported. **Seeing a
+   creature once, ever, is enough** - the list is saved between sessions.
+3. **A corpse under the cursor.** Only used while the first two have reported
+   nothing at all. This is why it used to need the mouse on the mob.
 
-`/lootz companion` also reports how many deaths it has seen so far, which is
-the quickest way to tell whether the combat log is feeding it.
+### How the counting works
 
-**If it still picks nothing up**, run `/lootz debug`, kill something, let the
-bot loot it, and look at the chat output. It prints every loot event the addon
-sees, dumps the raw combat log arguments for the first few events, and says
-when a death was ignored and why. If no combat log lines appear at all, this
-server does not report kills to addons the usual way - send that output along
-and it can be worked from there.
+With a companion looting there is no per corpse loot window, so **the kill is
+what counts as a sample**, and the chat messages supply the items. That is what
+makes several kills at once work: three dead Scourge Champions are three
+samples, and the three drops that follow are three drops, instead of all of it
+landing on one corpse and reporting a 300% drop rate.
+
+While companion looting is on, the loot window stops recording, because the
+same items also arrive in chat when you loot by hand. Nothing is ever counted
+twice.
+
+### What it will not guess at
+
+- Loot arriving after a kill it could not identify is **dropped**, not credited
+  to the previous creature. If that happens, target that creature once and it
+  will be recognised from then on.
+- Loot from a chest, herb or ore node is never credited to the last creature
+  you killed.
+- Loot with no kill behind it at all is ignored, and the addon says why -
+  either the last kill was too long ago (it prints how long), or nothing has
+  reported a kill yet.
+- **Still turn it off in a group.** Several people killing different things at
+  once is beyond what a name and a timestamp can sort out.
+
+At max level there is no experience message, so kills fall back to source 1 or
+3. If you grind at max level with a companion, say so and it can be looked at.
+
+`/lootz options` shows how many kills have been seen, which is the quickest way
+to tell whether this is working. `/lootz debug` prints every loot event, the
+raw combat log arguments, and the reason any kill was ignored.
 
 ---
 

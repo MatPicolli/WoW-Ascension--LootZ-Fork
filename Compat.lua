@@ -529,6 +529,32 @@ local function class()
 		return false
 	end
 
+	local function EscapePattern(text)
+		return (string.gsub(text, "([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"))
+	end
+
+	--"Scourge Champion dies, you gain 213 experience."
+	--The only trace of a kill on a client whose combat log stays silent.
+	function obj:ParseKillMessage(message)
+		if (message == nil) then return nil end
+
+		--Take the wording from the client, so this is not English only. Every
+		--variant (rested, group bonus) keeps the same "<name> dies, you gain"
+		--opening, so matching up to the number is enough.
+		local template = COMBATLOG_XPGAIN_FIRSTPERSON or "%s dies, you gain %d experience."
+		local middle = string.match(template, "%%s(.-)%%d")
+		if (middle == nil or middle == "") then middle = " dies, you gain " end
+
+		local name = string.match(message, "^(.-)" .. EscapePattern(middle))
+		if (name ~= nil and name ~= "") then return name end
+
+		--"Scourge Champion dies." on clients that report deaths as chat text
+		name = string.match(message, "^(.-) dies%.")
+		if (name ~= nil and name ~= "") then return name end
+
+		return nil
+	end
+
 	function obj:ParseLootMessage(message)
 		if (message == nil) then return nil end
 

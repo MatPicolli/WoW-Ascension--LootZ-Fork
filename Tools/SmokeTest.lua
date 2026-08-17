@@ -518,14 +518,14 @@ check(_G.LediiData_LootZ.companionLootEnabled == true, "/lootz companion enabled
 Mock.SetUnit("target", nil)
 Mock.SetUnit("mouseover", nil)
 BotLoot(Mock.items[4321].link, 1)
-check(printedContains("no creature death has been seen at all"),
-	"loot with no deaths at all explains that the combat log is silent")
+check(printedContains("no kill has been reported at all"),
+	"loot with no kills at all explains that nothing reported a death")
 check(printedContains("/lootz debug"), "and it says how to report that")
 
 BotLoot(Mock.items[4321].link, 1)
 BotLoot(Mock.items[4321].link, 1)
 BotLoot(Mock.items[4321].link, 1)
-check(printedCount("no creature death has been seen at all") == 1,
+check(printedCount("no kill has been reported at all") == 1,
 	"the warning is throttled instead of once per item")
 
 --With no combat log deaths at all, a targeted corpse is used instead
@@ -537,6 +537,70 @@ BotLoot(Mock.items[4321].link, 1)
 check(_G.LediiData_LootZ.units[FALLBACK_ENTRY] ~= nil,
 	"a targeted corpse is used when the combat log reports nothing")
 Mock.SetUnit("target", nil)
+
+--Killing several at once, on a client whose combat log reports nothing.
+--The kill text in chat is the only trace, and it only carries a name.
+local AOE_ENTRY = 4245
+local AOE_GUID = "0xF130001095000001"
+
+--Seeing the creature once is what teaches the addon its id
+Mock.SetUnit("mouseover", { guid = AOE_GUID, name = "Scourge Champion", dead = false, type = "Undead" })
+Mock.FireEvent("UPDATE_MOUSEOVER_UNIT")
+Mock.SetUnit("mouseover", nil)
+check(LediiData_LootZ.names ~= nil and LediiData_LootZ.names["Scourge Champion"] == AOE_ENTRY,
+	"seeing a creature remembers its name and id")
+
+local function KillText(name)
+	Mock.FireEvent("CHAT_MSG_COMBAT_XP_GAIN", name .. " dies, you gain 213 experience.")
+end
+
+--Three die in one pull, then the companion hands over three items
+KillText("Scourge Champion")
+KillText("Scourge Champion")
+KillText("Scourge Champion")
+check(LediiData_LootZ.units[AOE_ENTRY] ~= nil, "a kill reported only as chat text was recorded")
+check(LediiData_LootZ.units[AOE_ENTRY].lootingCount == 3,
+	"three kills in one pull counted as three samples, with no mouse involved")
+
+BotLoot(Mock.items[774].link)
+BotLoot(Mock.items[774].link)
+BotLoot(Mock.items[774].link)
+check(LediiData_LootZ.units[AOE_ENTRY].items[774] ~= nil, "the loot that followed was credited to them")
+check(LediiData_LootZ.units[AOE_ENTRY].items[774].totalCount == 3, "all three drops were counted")
+check(LediiData_LootZ.units[AOE_ENTRY].lootingCount == 3,
+	"and the loot did not inflate the sample count (3 drops from 3 kills, not 1)")
+
+--A creature the addon has never seen cannot be credited, and is not guessed at
+local function countUnits()
+	local count = 0
+	for _ in pairs(LediiData_LootZ.units) do count = count + 1 end
+	return count
+end
+
+local unitsBeforeUnknown = countUnits()
+KillText("Something Never Seen")
+BotLoot(Mock.items[774].link)
+check(countUnits() == unitsBeforeUnknown, "an unknown creature name is skipped rather than guessed at")
+check(LediiData_LootZ.units[AOE_ENTRY].lootingCount == 3,
+	"and the unknown kill did not become a sample for the previous creature")
+check(LediiData_LootZ.units[AOE_ENTRY].items[774].totalCount == 3,
+	"loot following an unidentified kill is dropped, not credited to the wrong creature")
+
+--Loot from a chest or a node must not land on the last creature killed
+local aoeItemsBefore = LediiData_LootZ.units[AOE_ENTRY].items[2770]
+_G.GameTooltip:SetOwner(_G.UIParent)
+_G.GameTooltipTextLeft1:SetText("Copper Vein")
+Mock.SetUnit("target", nil)
+Mock.ClickMouse("RightButton")
+Mock.FireEvent("LOOT_OPENED")
+BotLoot(Mock.items[2770].link)
+Mock.FireEvent("LOOT_CLOSED")
+_G.GameTooltipTextLeft1:SetText(nil)
+check(LediiData_LootZ.units[AOE_ENTRY].items[2770] == aoeItemsBefore,
+	"loot from a world object was not credited to the last creature killed")
+
+--Past the settle time again for the rest of the run
+Mock.RunFrames(20, 0.2)
 
 --An unrecognised guid type must still count, custom cores use custom ranges
 local ODD_ENTRY = 4244

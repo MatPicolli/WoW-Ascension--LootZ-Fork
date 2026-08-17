@@ -79,6 +79,10 @@ local function PrivateClass()
 		loot:OnChatMoney(message)
 	end
 
+	function obj:OnKillText(message)
+		loot:OnKillText(message)
+	end
+
 	function obj:OnCombatLogEvent(...)
 		local data = compat:ReadCombatLogEvent(...)
 
@@ -132,6 +136,10 @@ local function OnEvent(self, event, ...)
 		class:OnChatLoot(...)
 	elseif (event == "CHAT_MSG_MONEY") then
 		class:OnChatMoney(...)
+	elseif (event == "CHAT_MSG_COMBAT_XP_GAIN") then
+		class:OnKillText(...)
+	elseif (event == "CHAT_MSG_COMBAT_HOSTILE_DEATH") then
+		class:OnKillText(...)
 	elseif (event == "COMBAT_LOG_EVENT_UNFILTERED") then
 		class:OnCombatLogEvent(...)
 	elseif (event == "UPDATE_MOUSEOVER_UNIT") then
@@ -171,12 +179,17 @@ frame:RegisterEvent("CHAT_MSG_LOOT")
 frame:RegisterEvent("CHAT_MSG_MONEY")
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
+--The kill text is the only trace of a death on a client whose combat log
+--reports nothing to addons
+frame:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
+
 --Events that only exist on some clients
 local function TryRegisterEvent(name)
 	pcall(frame.RegisterEvent, frame, name)
 end
 
 TryRegisterEvent("LOOT_READY")
+TryRegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")
 TryRegisterEvent("CURSOR_CHANGED")
 TryRegisterEvent("CURSOR_UPDATE")
 
