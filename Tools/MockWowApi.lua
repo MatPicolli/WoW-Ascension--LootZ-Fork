@@ -183,6 +183,9 @@ Mock.knownEvents = {
 	UPDATE_MOUSEOVER_UNIT = true,
 	PLAYER_TARGET_CHANGED = true,
 	CURSOR_UPDATE = true,
+	CHAT_MSG_LOOT = true,
+	CHAT_MSG_MONEY = true,
+	COMBAT_LOG_EVENT_UNFILTERED = true,
 	--Deliberately missing on 3.3.5a: LOOT_READY, CURSOR_CHANGED,
 	--GLOBAL_MOUSE_UP, GLOBAL_MOUSE_DOWN
 }
@@ -243,6 +246,10 @@ function Mock.Install()
 	_G.GOLD_AMOUNT = "%d Gold"
 	_G.SILVER_AMOUNT = "%d Silver"
 	_G.COPPER_AMOUNT = "%d Copper"
+	_G.LOOT_ITEM_SELF = "You receive loot: %s."
+	_G.LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %sx%d."
+	_G.LOOT_ITEM_PUSHED_SELF = "You receive item: %s."
+	_G.LOOT_ITEM_PUSHED_SELF_MULTIPLE = "You receive item: %sx%d."
 
 	--Lua helpers the client adds
 	_G.strsplit = function(delimiter, text)

@@ -31,8 +31,63 @@ local function PrivateClass()
 		log:Info(obj:Highlight(cmd .. " log {warning | error | stats | all}", " - Toggles logging"))
 		log:Info(obj:Highlight(cmd .. " stats {gather | display | all}", " - Toggles statistics"))
 		log:Info(obj:Highlight(cmd .. " keybind", " - Sets modifier key to display loot"))
+		log:Info(obj:Highlight(cmd .. " companion", " - Toggles credit for loot a companion picks up"))
+		log:Info(obj:Highlight(cmd .. " shared", " - Toggles shared statistics from other players"))
+		log:Info(obj:Highlight(cmd .. " export", " - Explains where your statistics are saved"))
+		log:Info(obj:Highlight(cmd .. " debug", " - Logs loot events, for reporting problems"))
 		log:Info(obj:Highlight(cmd .. " welcome", " - Toggles login message"))
 		log:Info(obj:Highlight(cmd .. " version", " - Displays current version"))
+	end
+
+	function obj:Companion()
+		local newState = not LediiData_LootZ.companionLootEnabled
+		LediiData_LootZ.companionLootEnabled = newState
+		obj:InfoLogToggle("Companion looting", not newState)
+
+		if (newState) then
+			log:Info("Loot picked up by a companion is credited to the creature that died most recently.")
+			log:Info("Turn this off while playing in a group, it cannot tell whose kill it was.")
+		end
+	end
+
+	function obj:Shared()
+		local newState = not LediiData_LootZ.sharedDisabled
+		LediiData_LootZ.sharedDisabled = newState
+		obj:InfoLogToggle("Shared statistics", newState)
+		utils:InvalidateStatsCache()
+	end
+
+	function obj:Debug()
+		local newState = not LediiData_LootZ.debugEnabled
+		LediiData_LootZ.debugEnabled = newState
+		obj:InfoLogToggle("Debug logging", not newState)
+	end
+
+	function obj:Export()
+		local units = 0
+		local lootings = 0
+
+		if (LediiData_LootZ ~= nil and LediiData_LootZ.units ~= nil) then
+			for _, unit in pairs(LediiData_LootZ.units) do
+				units = units + 1
+				lootings = lootings + (unit.lootingCount or 0)
+			end
+		end
+
+		local shared = 0
+		if (_G.LEDII_LZ_SHARED ~= nil and _G.LEDII_LZ_SHARED.units ~= nil) then
+			for _ in pairs(_G.LEDII_LZ_SHARED.units) do
+				shared = shared + 1
+			end
+		end
+
+		log:Info(obj:Highlight(units .. " creatures", " tracked, from " .. lootings .. " lootings."))
+		log:Info(obj:Highlight(shared .. " creatures", " loaded from shared statistics."))
+		log:Info("Your statistics are saved to:")
+		log:Info(const:Color("TEXT_HIGHLIGHT") .. "WTF\\Account\\<YOUR ACCOUNT>\\SavedVariables\\LootZ.lua")
+		log:Info("The file is written when you log out or reload, not while playing.")
+		log:Info("Type " .. const:Color("TEXT_HIGHLIGHT") .. "/reload" .. const:Color("TEXT") .. " to write it right now.")
+		log:Info("See the readme for how to share it with other players.")
 	end
 
 	function obj:Controls()
@@ -245,6 +300,14 @@ function SlashCmdList.LEDII_LZ(msg, editbox)
 		class:ToggleStats(args[2])
 	elseif (args[1] == "keybind") then
 		class:Keybind()
+	elseif (args[1] == "companion") then
+		class:Companion()
+	elseif (args[1] == "shared") then
+		class:Shared()
+	elseif (args[1] == "export") then
+		class:Export()
+	elseif (args[1] == "debug") then
+		class:Debug()
 	elseif (args[1] == "welcome") then
 		class:Welcome()
 	elseif (args[1] == "version") then

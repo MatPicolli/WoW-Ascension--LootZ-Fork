@@ -450,6 +450,87 @@ local function class()
 
 
 
+	--Combat log
+	--3.3.5a passes the payload as event arguments, later clients pass it
+	--through CombatLogGetCurrentEventInfo and insert extra fields
+	function obj:ReadCombatLogEvent(...)
+		local args
+		if (CombatLogGetCurrentEventInfo ~= nil) then
+			args = { CombatLogGetCurrentEventInfo() }
+		else
+			args = { ... }
+		end
+
+		local data = {}
+		data.event = args[2]
+
+		if (type(args[3]) == "boolean") then
+			--timestamp, event, hideCaster, sourceGUID, sourceName, sourceFlags,
+			--sourceRaidFlags, destGUID, destName
+			data.sourceGUID = args[4]
+			data.sourceName = args[5]
+			data.destGUID = args[8]
+			data.destName = args[9]
+		else
+			--timestamp, event, sourceGUID, sourceName, sourceFlags, destGUID,
+			--destName, destFlags
+			data.sourceGUID = args[3]
+			data.sourceName = args[4]
+			data.destGUID = args[6]
+			data.destName = args[7]
+		end
+
+		return data
+	end
+
+
+
+	--Loot chat messages, used when something loots for you and no loot window
+	--is ever opened
+	local function MessagePrefix(pattern, fallback)
+		if (pattern == nil) then return fallback end
+
+		local prefix = string.match(pattern, "^(.-)%%s")
+		if (prefix == nil or prefix == "") then return fallback end
+
+		return prefix
+	end
+
+	function obj:IsSelfLootMessage(message)
+		if (message == nil) then return false end
+
+		local prefixes = {
+			MessagePrefix(LOOT_ITEM_SELF, "You receive loot:"),
+			MessagePrefix(LOOT_ITEM_SELF_MULTIPLE, "You receive loot:"),
+			MessagePrefix(LOOT_ITEM_PUSHED_SELF, "You receive item:"),
+			MessagePrefix(LOOT_ITEM_PUSHED_SELF_MULTIPLE, "You receive item:"),
+		}
+
+		for i = 1, #prefixes do
+			local prefix = prefixes[i]
+			if (string.sub(message, 1, string.len(prefix)) == prefix) then
+				return true
+			end
+		end
+
+		return false
+	end
+
+	function obj:ParseLootMessage(message)
+		if (message == nil) then return nil end
+
+		local itemId = tonumber(string.match(message, "|Hitem:(%d+)"))
+		if (itemId == nil) then return nil end
+
+		--"...|h|rx3." - a single item has no count at all
+		local quantity = tonumber(string.match(message, "[xX](%d+)%.?%s*$")) or 1
+		local name = string.match(message, "%[(.-)%]")
+
+		return itemId, quantity, name
+	end
+
+
+
 	--Tooltip helpers
 	function obj:GetTooltipSpell(tooltip)
 		if (tooltip.GetSpell == nil) then return nil end

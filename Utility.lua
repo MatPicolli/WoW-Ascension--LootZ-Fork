@@ -409,16 +409,78 @@ local function class()
 		return rateStr, countStr
 	end
 
+	--Statistics shared by other players, loaded from Database/Shared/
+	local mergedStatsCache = {}
+
+	function obj:InvalidateStatsCache()
+		mergedStatsCache = {}
+	end
+
+	function obj:GetLocalUnitData(index)
+		if (LediiData_LootZ == nil or LediiData_LootZ.units == nil) then return nil end
+		return LediiData_LootZ.units[index]
+	end
+
+	function obj:GetSharedUnitData(index)
+		if (LediiData_LootZ ~= nil and LediiData_LootZ.sharedDisabled) then return nil end
+
+		local shared = _G.LEDII_LZ_SHARED
+		if (shared == nil or shared.units == nil) then return nil end
+
+		return shared.units[index]
+	end
+
+	function obj:MergeSlots(a, b)
+		if (a == nil) then return b end
+		if (b == nil) then return a end
+
+		local slot = {}
+		slot.name = a.name or b.name
+		slot.minAmount = math.min(a.minAmount, b.minAmount)
+		slot.maxAmount = math.max(a.maxAmount, b.maxAmount)
+		slot.totalAmount = a.totalAmount + b.totalAmount
+		slot.totalCount = a.totalCount + b.totalCount
+
+		return slot
+	end
+
+	function obj:MergeUnitData(localData, sharedData)
+		local merged = {}
+		merged.name = localData.name or sharedData.name
+		merged.lootingCount = localData.lootingCount + sharedData.lootingCount
+		merged.money = obj:MergeSlots(localData.money, sharedData.money)
+		merged.items = {}
+
+		for itemId, slot in pairs(localData.items) do
+			merged.items[itemId] = slot
+		end
+		for itemId, slot in pairs(sharedData.items) do
+			merged.items[itemId] = obj:MergeSlots(merged.items[itemId], slot)
+		end
+
+		return merged
+	end
+
 	function obj:GetTrackedUnitData(index, showWarning)
 		if (showWarning == nil) then
 			showWarning = true
 		end
 
-		if (LediiData_LootZ ~= nil and LediiData_LootZ.units ~= nil) then
-			local unitData = LediiData_LootZ.units[index]
-			if (unitData ~= nil) then
-				return unitData
+		local localData = obj:GetLocalUnitData(index)
+		local sharedData = obj:GetSharedUnitData(index)
+
+		if (localData ~= nil and sharedData == nil) then
+			return localData
+		end
+		if (localData == nil and sharedData ~= nil) then
+			return sharedData
+		end
+		if (localData ~= nil and sharedData ~= nil) then
+			--Merging every tooltip would be wasteful, so keep the result
+			if (mergedStatsCache[index] == nil) then
+				mergedStatsCache[index] = obj:MergeUnitData(localData, sharedData)
 			end
+			return mergedStatsCache[index]
 		end
 
 		if (showWarning) then
