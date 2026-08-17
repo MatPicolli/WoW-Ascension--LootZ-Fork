@@ -602,6 +602,44 @@ check(LediiData_LootZ.units[AOE_ENTRY].items[2770] == aoeItemsBefore,
 --Past the settle time again for the rest of the run
 Mock.RunFrames(20, 0.2)
 
+--At max level there is no experience message either, so the kill has to be
+--seen happening. No combat log, no kill text, no mouse at loot time.
+local WATCH_ENTRY = 4246
+local WATCH_GUID = "0xF130001096000001"
+local watchUnit = { guid = WATCH_GUID, name = "Geist Rotbringer", level = 80, dead = false, type = "Undead" }
+
+Mock.SetUnit("target", watchUnit)
+Mock.RunFrames(5, 0.2)
+check(LediiData_LootZ.units[WATCH_ENTRY] == nil, "a creature that is still alive is not a kill")
+
+watchUnit.dead = true
+Mock.RunFrames(5, 0.2)
+check(LediiData_LootZ.units[WATCH_ENTRY] ~= nil, "a creature seen dying counted, with no experience message")
+check(LediiData_LootZ.units[WATCH_ENTRY].lootingCount == 1, "and counted exactly once")
+
+Mock.RunFrames(10, 0.2)
+check(LediiData_LootZ.units[WATCH_ENTRY].lootingCount == 1, "and stays counted once while the corpse is still there")
+
+--The loot can turn up later, after the corpse is no longer targeted
+Mock.SetUnit("target", nil)
+Mock.RunFrames(5, 0.2)
+BotLoot(Mock.items[774].link)
+check(LediiData_LootZ.units[WATCH_ENTRY].items[774] ~= nil,
+	"loot arriving after the target was cleared was still credited")
+
+--A corpse that was already dead the first time it was seen is someone else's
+Mock.SetUnit("target", {
+	guid = "0xF130001096000002", name = "Geist Rotbringer", dead = true, type = "Undead",
+})
+Mock.RunFrames(5, 0.2)
+check(LediiData_LootZ.units[WATCH_ENTRY].lootingCount == 1,
+	"a corpse that was already dead when first seen was not counted")
+Mock.SetUnit("target", nil)
+Mock.RunFrames(2, 0.2)
+
+check(pcall(slash, "diag"), "/lootz diag reports how kills are being detected")
+check(printedContains("from seen dying"), "and it breaks the kills down by source")
+
 --An unrecognised guid type must still count, custom cores use custom ranges
 local ODD_ENTRY = 4244
 KillCreature("0xF530001094000001", "Strange Thing")
@@ -655,6 +693,29 @@ check(_G.LediiData_LootZ.units[BOT_ENTRY].items[5678] == nil, "and it was not cr
 
 slash("companion")
 check(_G.LediiData_LootZ.companionLootEnabled == false, "/lootz companion turned it back off")
+
+--With companion looting off, watching a death must not claim the corpse, or
+--the loot window would find it already counted and record nothing
+local NORMAL_ENTRY = 4247
+local NORMAL_GUID = "0xF130001097000001"
+local normalUnit = { guid = NORMAL_GUID, name = "Plagued Ghoul", level = 80, dead = false, type = "Undead" }
+
+Mock.SetUnit("target", normalUnit)
+Mock.RunFrames(5, 0.2)
+normalUnit.dead = true
+Mock.RunFrames(5, 0.2)
+check(LediiData_LootZ.units[NORMAL_ENTRY] == nil,
+	"with companion looting off, a watched death is not counted on its own")
+
+Mock.FireEvent("PLAYER_TARGET_CHANGED")
+Mock.ClickMouse("RightButton")
+Mock.lootSlots = { { name = "Linen Cloth", quantity = 1, quality = 1, link = Mock.items[1234].link } }
+Mock.FireEvent("LOOT_OPENED")
+Mock.RunFrames(2)
+Mock.FireEvent("LOOT_CLOSED")
+check(LediiData_LootZ.units[NORMAL_ENTRY] ~= nil and LediiData_LootZ.units[NORMAL_ENTRY].lootingCount == 1,
+	"and the loot window still records that corpse normally")
+Mock.SetUnit("target", nil)
 
 --Shared statistics ----------------------------------------------------------
 

@@ -9,6 +9,8 @@ local render = _G.LEDII_LZ_RENDER
 local frame = nil
 local hasLootReadyEvent = false
 local combatLogSamples = 0
+local combatLogEvents = 0
+local combatLogSubEvents = {}
 
 local function PrivateClass()
 	local obj = {}
@@ -83,8 +85,25 @@ local function PrivateClass()
 		loot:OnKillText(message)
 	end
 
+	--Whether the combat log says anything at all, and what, is the first
+	--question whenever kills go unnoticed
+	function obj:GetCombatLogStats()
+		local names = {}
+		for name in pairs(combatLogSubEvents) do
+			table.insert(names, name)
+		end
+		table.sort(names)
+
+		return combatLogEvents, names
+	end
+
 	function obj:OnCombatLogEvent(...)
 		local data = compat:ReadCombatLogEvent(...)
+
+		combatLogEvents = combatLogEvents + 1
+		if (data.event ~= nil) then
+			combatLogSubEvents[data.event] = true
+		end
 
 		--In debug mode the first few events are dumped raw, so an unexpected
 		--argument layout on a custom server can be seen rather than guessed at
@@ -140,6 +159,10 @@ local function OnEvent(self, event, ...)
 		class:OnKillText(...)
 	elseif (event == "CHAT_MSG_COMBAT_HOSTILE_DEATH") then
 		class:OnKillText(...)
+	elseif (event == "CHAT_MSG_COMBAT_FACTION_CHANGE" or event == "CHAT_MSG_COMBAT_MISC_INFO") then
+		--Not used, only logged: on a server that reports kills some other way,
+		--this is where it would show up
+		loot:DebugLog(event .. " " .. tostring(...))
 	elseif (event == "COMBAT_LOG_EVENT_UNFILTERED") then
 		class:OnCombatLogEvent(...)
 	elseif (event == "UPDATE_MOUSEOVER_UNIT") then
@@ -190,6 +213,8 @@ end
 
 TryRegisterEvent("LOOT_READY")
 TryRegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")
+TryRegisterEvent("CHAT_MSG_COMBAT_FACTION_CHANGE")
+TryRegisterEvent("CHAT_MSG_COMBAT_MISC_INFO")
 TryRegisterEvent("CURSOR_CHANGED")
 TryRegisterEvent("CURSOR_UPDATE")
 

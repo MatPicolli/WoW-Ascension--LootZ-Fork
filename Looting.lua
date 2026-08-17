@@ -28,6 +28,13 @@ local function class()
 	local lootWindowSettleTime = 1.5
 	local lootWindowTimeout = 30.0
 	local lastWindowWasCreature = true
+	local killsBySource = {}
+
+	--Units watched for the moment they die
+	local watchedUnits = {}
+	local watchUnitIds = { "target", "mouseover", "focus" }
+	local watchInterval = 0.2
+	local watchMemory = 180.0
 
 	function obj:OnTargetChanged()
 		obj:CleanupCache("target")
@@ -438,18 +445,81 @@ local function class()
 		end
 
 		obj:RememberUnitName(name, unitId)
+		killsBySource[source or "unknown"] = (killsBySource[source or "unknown"] or 0) + 1
 
 		--Counting shares the looted corpse list with the loot window path, so a
-		--corpse can never be counted by both
-		local isNewCorpse = (guid == nil) or obj:TryCacheGUID(guid)
-		if (isNewCorpse and obj:IsCompanionLootEnabled() and not LediiData_LootZ.statsGatherDisabled) then
-			local dataUnit = obj:PrepareUnitData(kill)
-			obj:RegisterLooting(kill, dataUnit)
-			obj:SaveUnit(kill, dataUnit)
+		--corpse can never be counted by both. Claiming the corpse must only
+		--happen when this path is the one doing the counting, or it would stop
+		--the loot window from recording it.
+		if (obj:IsCompanionLootEnabled() and not LediiData_LootZ.statsGatherDisabled) then
+			if ((guid == nil) or obj:TryCacheGUID(guid)) then
+				local dataUnit = obj:PrepareUnitData(kill)
+				obj:RegisterLooting(kill, dataUnit)
+				obj:SaveUnit(kill, dataUnit)
+			end
 		end
 
 		obj:DebugLog("kill " .. kill.name .. " id " .. unitId .. " from " .. tostring(source))
 		return kill
+	end
+
+	--Watching units die
+	--At max level there is no experience message, so on a client whose combat
+	--log says nothing this is the only way left to see a kill happen. Any
+	--creature seen alive and then seen dead is one, no matter what reported it.
+	function obj:WatchUnits()
+		--Never touch saved variables before they exist
+		if (LediiData_LootZ == nil) then return end
+
+		local now = GetTime()
+		for i = 1, #watchUnitIds do
+			obj:WatchUnit(watchUnitIds[i], now)
+		end
+
+		--Forget units that have been out of sight for a while
+		for guid, entry in pairs(watchedUnits) do
+			if (now - entry.time > watchMemory) then
+				watchedUnits[guid] = nil
+			end
+		end
+	end
+
+	function obj:WatchUnit(unitId, now)
+		if (not UnitExists(unitId)) then return end
+		if (UnitIsPlayer(unitId)) then return end
+
+		local guid = UnitGUID(unitId)
+		if (guid == nil) then return end
+
+		local ids = utils:BreakGUID(guid)
+		if (ids.index == nil or ids.index == 0) then return end
+		if (nonCreatureTypes[ids.type]) then return end
+
+		local name = UnitName(unitId)
+
+		if (not UnitIsDead(unitId)) then
+			obj:RememberUnitName(name, ids.index)
+
+			local entry = watchedUnits[guid]
+			if (entry == nil) then
+				entry = { name = name, unitId = ids.index }
+				watchedUnits[guid] = entry
+			end
+			entry.time = now
+			return
+		end
+
+		--Dead now, and we saw it alive ourselves. A corpse that was already
+		--dead when we first saw it is somebody else's kill and is ignored.
+		local entry = watchedUnits[guid]
+		if (entry == nil) then return end
+		watchedUnits[guid] = nil
+
+		obj:TouchKill(entry.unitId, entry.name or name, guid, "watch")
+	end
+
+	function obj:GetKillsBySource()
+		return killsBySource
 	end
 
 	function obj:OnUnitDied(destGUID, destName)
@@ -663,4 +733,8 @@ local function class()
 	return obj
 end
 
-_G.LEDII_LZ_LOOT = class()
+local class = class()
+_G.LEDII_LZ_LOOT = class
+
+--Watching for deaths, because not every server reports them
+C_Timer.NewTicker(0.2, function() class:WatchUnits() end)

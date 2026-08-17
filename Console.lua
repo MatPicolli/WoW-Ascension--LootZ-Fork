@@ -38,6 +38,7 @@ local function PrivateClass()
 		log:Info(obj:Highlight(cmd .. " shared", " - Toggles shared statistics from other players"))
 		log:Info(obj:Highlight(cmd .. " export", " - Explains where your statistics are saved"))
 		log:Info(obj:Highlight(cmd .. " debug", " - Logs loot events, for reporting problems"))
+		log:Info(obj:Highlight(cmd .. " diag", " - Reports how kills are being detected"))
 		log:Info(obj:Highlight(cmd .. " welcome", " - Toggles login message"))
 		log:Info(obj:Highlight(cmd .. " version", " - Displays current version"))
 	end
@@ -49,6 +50,50 @@ local function PrivateClass()
 		end
 
 		options:Toggle()
+	end
+
+	function obj:Diagnose()
+		local deaths, tracked, window = loot:GetCompanionState()
+		local sources = loot:GetKillsBySource()
+
+		log:Info(const:Color("HEADER") .. "Kill tracking")
+		log:Info(obj:Highlight(deaths .. " kills", " seen, " .. tracked .. " within the last " .. window .. "s"))
+
+		local sourceNames = { "watch", "combatlog", "text", "corpse" }
+		local labels = {
+			watch = "seen dying (target, mouseover or focus)",
+			combatlog = "combat log",
+			text = "kill text in chat",
+			corpse = "corpse under the cursor",
+		}
+		for i = 1, #sourceNames do
+			local name = sourceNames[i]
+			log:Info(obj:Highlight("  " .. (sources[name] or 0), " from " .. labels[name]))
+		end
+
+		local names = 0
+		if (LediiData_LootZ.names ~= nil) then
+			for _ in pairs(LediiData_LootZ.names) do names = names + 1 end
+		end
+		log:Info(obj:Highlight(names .. " creature names", " remembered"))
+
+		local events = _G.LEDII_LZ_EVENTS
+		if (events ~= nil and events.GetCombatLogStats ~= nil) then
+			local total, subEvents = events:GetCombatLogStats()
+			log:Info(const:Color("HEADER") .. "Combat log")
+			log:Info(obj:Highlight(total .. " events", " received"))
+
+			if (total == 0) then
+				log:Info(const:Color("WARNING") .. "This server reports no combat log to addons at all.")
+				log:Info(const:Color("WARNING") .. "Kills are found by watching creatures die instead.")
+			else
+				log:Info(obj:Highlight("Types: ", table.concat(subEvents, ", ")))
+			end
+		end
+
+		log:Info(const:Color("HEADER") .. "Settings")
+		obj:InfoLogToggle("Companion looting", not LediiData_LootZ.companionLootEnabled)
+		obj:InfoLogToggle("Gathering statistics", LediiData_LootZ.statsGatherDisabled)
 	end
 
 	function obj:Companion()
@@ -331,6 +376,8 @@ function SlashCmdList.LEDII_LZ(msg, editbox)
 		class:Export()
 	elseif (args[1] == "debug") then
 		class:Debug()
+	elseif (args[1] == "diag" or args[1] == "diagnose") then
+		class:Diagnose()
 	elseif (args[1] == "welcome") then
 		class:Welcome()
 	elseif (args[1] == "version") then
