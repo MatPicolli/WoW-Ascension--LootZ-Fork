@@ -4,6 +4,7 @@ local const = _G.LEDII_LZ_CONST
 local render = _G.LEDII_LZ_RENDER
 local utils = _G.LEDII_LZ_UTILS
 local compat = _G.LEDII_LZ_COMPAT
+local loot = _G.LEDII_LZ_LOOT
 
 local function PrivateClass()
 	local obj = {}
@@ -45,8 +46,17 @@ local function PrivateClass()
 		obj:InfoLogToggle("Companion looting", not newState)
 
 		if (newState) then
+			local deaths, tracked, window = loot:GetCompanionState()
 			log:Info("Loot picked up by a companion is credited to the creature that died most recently.")
 			log:Info("Turn this off while playing in a group, it cannot tell whose kill it was.")
+			log:Info(obj:Highlight(deaths .. " deaths", " seen so far, " .. tracked
+				.. " still within the " .. window .. "s window."))
+
+			if (deaths == 0) then
+				log:Info(const:Color("WARNING") .. "No deaths seen yet. If that is still true after killing"
+					.. " something, run " .. const:Color("TEXT_HIGHLIGHT") .. "/lootz debug"
+					.. const:Color("WARNING") .. " and report the output.")
+			end
 		end
 	end
 

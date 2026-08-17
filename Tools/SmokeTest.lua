@@ -48,6 +48,14 @@ local function lastPrinted(count)
 	return table.concat(out, "\n")
 end
 
+local function printedCount(text)
+	local count = 0
+	for i = 1, #Mock.printed do
+		if (string.find(Mock.printed[i], text, 1, true)) then count = count + 1 end
+	end
+	return count
+end
+
 local function printedContains(text)
 	for i = 1, #Mock.printed do
 		if (string.find(Mock.printed[i], text, 1, true)) then return true end
@@ -373,13 +381,43 @@ local function BotLoot(link, count)
 	Mock.FireEvent("CHAT_MSG_LOOT", "You receive loot: " .. link .. suffix)
 end
 
---Off by default, nothing should be recorded
-KillCreature(BOT_GUID, "Rusty Construct")
+--Off by default, nothing is recorded even with a corpse targeted
 BotLoot(Mock.items[4321].link, 2)
 check(_G.LediiData_LootZ.units[BOT_ENTRY] == nil, "companion looting is off by default")
 
 slash("companion")
 check(_G.LediiData_LootZ.companionLootEnabled == true, "/lootz companion enabled it")
+
+--Nothing has died and nothing is targeted: say why, and say it only once
+Mock.SetUnit("target", nil)
+Mock.SetUnit("mouseover", nil)
+BotLoot(Mock.items[4321].link, 1)
+check(printedContains("no creature death has been seen at all"),
+	"loot with no deaths at all explains that the combat log is silent")
+check(printedContains("/lootz debug"), "and it says how to report that")
+
+BotLoot(Mock.items[4321].link, 1)
+BotLoot(Mock.items[4321].link, 1)
+BotLoot(Mock.items[4321].link, 1)
+check(printedCount("no creature death has been seen at all") == 1,
+	"the warning is throttled instead of once per item")
+
+--With no combat log deaths at all, a targeted corpse is used instead
+local FALLBACK_ENTRY = 4243
+Mock.SetUnit("target", {
+	guid = "0xF130001093000001", name = "Sludge Beast", level = 9, dead = true, type = "Elemental",
+})
+BotLoot(Mock.items[4321].link, 1)
+check(_G.LediiData_LootZ.units[FALLBACK_ENTRY] ~= nil,
+	"a targeted corpse is used when the combat log reports nothing")
+Mock.SetUnit("target", nil)
+
+--An unrecognised guid type must still count, custom cores use custom ranges
+local ODD_ENTRY = 4244
+KillCreature("0xF530001094000001", "Strange Thing")
+BotLoot(Mock.items[4321].link, 1)
+check(_G.LediiData_LootZ.units[ODD_ENTRY] ~= nil,
+	"a death with an unrecognised guid type was still recorded")
 
 KillCreature(BOT_GUID, "Rusty Construct")
 BotLoot(Mock.items[4321].link, 2)
@@ -419,10 +457,11 @@ check(_G.LediiData_LootZ.units[BOT_ENTRY].lootingCount == 3, "a hand looted corp
 check(_G.LediiData_LootZ.units[BOT_ENTRY].items[4321].totalCount == 3,
 	"the item was counted once for the hand looted corpse, not twice")
 
---Loot with no recent kill is ignored rather than guessed at
-Mock.time = Mock.time + 120
-BotLoot(Mock.items[1234].link)
-check(printedContains("no recent kill"), "loot that cannot be matched to a kill is reported, not guessed")
+--Once kills age out of the window the loot is ignored, and it says how old
+Mock.time = Mock.time + 300
+BotLoot(Mock.items[5678].link)
+check(printedContains("the last kill was"), "loot older than the window is reported with the age of the last kill")
+check(_G.LediiData_LootZ.units[BOT_ENTRY].items[5678] == nil, "and it was not credited to anything")
 
 slash("companion")
 check(_G.LediiData_LootZ.companionLootEnabled == false, "/lootz companion turned it back off")
