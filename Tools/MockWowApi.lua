@@ -114,6 +114,13 @@ function widgetMethods:CreateTexture(name, layer)
 	return tex
 end
 
+function widgetMethods:SetChecked(value) self.__checked = value and true or false end
+function widgetMethods:GetChecked() return self.__checked == true end
+function widgetMethods:Click()
+	local onClick = self.__scripts.OnClick
+	if (onClick ~= nil) then onClick(self, "LeftButton") end
+end
+
 function widgetMethods:SetScrollChild(child) self.__scrollChild = child end
 function widgetMethods:GetScrollChild() return self.__scrollChild end
 

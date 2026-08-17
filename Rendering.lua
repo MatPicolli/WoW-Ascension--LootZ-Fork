@@ -60,6 +60,43 @@ local function class()
 		return "Object", indexes[1], name
 	end
 
+	function obj:FindHoveredItem()
+		--Covers anything the game is showing an item tooltip for: bags, bank,
+		--the character sheet, merchants, quest rewards
+		local itemName, itemLink = GameTooltip:GetItem()
+		if (itemLink == nil) then return nil end
+
+		local itemId = compat:GetItemIdFromLink(itemLink)
+		if (itemId == nil) then return nil end
+
+		return "Item", itemId, itemName
+	end
+
+	--What an item itself yields, in the order worth checking
+	local itemLootSources = {
+		{ table = "ItemLoot", name = "Contents" },
+		{ table = "ProspectingLoot", name = "Prospecting" },
+		{ table = "MillingLoot", name = "Milling" },
+		{ table = "DisenchantLoot", name = "Disenchanting" },
+	}
+
+	function obj:FindItemLoot(index)
+		for i = 1, #itemLootSources do
+			local source = itemLootSources[i]
+			local rows = utils:FindIndexFromDB(source.table, index, false)
+			if (rows ~= nil) then
+				target.source = source.name
+				return rows
+			end
+		end
+
+		return nil
+	end
+
+	function obj:HasData()
+		return hierarchy ~= nil
+	end
+
 	function obj:SetTargetData(type, index, name)
 		--Validate new target
 		if (type == target.type and index == target.index) then return end
@@ -179,6 +216,8 @@ local function class()
 				end
 			elseif (target.type == "Pickpocketing") then
 				dataRows = utils:FindIndexFromDB("PickpocketingLoot", target.index)
+			elseif (target.type == "Item") then
+				dataRows = obj:FindItemLoot(target.index)
 			end
 
 		elseif (dataMode == "Stats") then
@@ -490,8 +529,11 @@ local function class()
 		--Prevent spell tooltips
 		--if (false) then return end
 
-		--Find current target
+		--Find what is under the cursor, then fall back to the target
 		local type, index, name = obj:FindNearestObject()
+		if (type == nil) then
+			type, index, name = obj:FindHoveredItem()
+		end
 		if (type == nil) then
 			local ids = utils:BreakGUID(UnitGUID("target"))
 			type = ids.type
@@ -501,11 +543,22 @@ local function class()
 		obj:SetTargetData(type, index, name)
 
 		--Update visibility
-		if (target.type ~= nil) then
-			obj:Show()
-		else
+		if (target.type == nil) then
 			obj:Hide()
+			return
 		end
+
+		--Most items simply have no loot of their own, say so rather than
+		--opening an empty window
+		if (target.type == "Item" and not obj:HasData()) then
+			log:Info(const:Color("WARNING") .. "No loot data for " .. tostring(name) .. ".")
+			log:Info(const:Color("WARNING") .. "Items only have loot when they are a container, or can be"
+				.. " prospected, milled or disenchanted.")
+			obj:Hide()
+			return
+		end
+
+		obj:Show()
 	end
 
 	function obj:OnCursorChanged(...)
@@ -551,8 +604,11 @@ local function class()
 	end
 
 	function obj:OnOptionsButton()
-		log:Info("Todo: Options button")
-		--obj:UpdateUI()
+		--Options.lua loads after this file, so it is looked up when clicked
+		local options = _G.LEDII_LZ_OPTIONS
+		if (options == nil) then return end
+
+		options:Toggle()
 	end
 
 	function obj:OnCloseButton()
@@ -811,7 +867,11 @@ local function class()
 		obj:ClearUI()
 
 		if (target.type == nil) then return end
-		headerLabel:SetText(target.name)
+		if (target.source ~= nil) then
+			headerLabel:SetText(target.name .. " - " .. target.source)
+		else
+			headerLabel:SetText(target.name)
+		end
 
 		if (hierarchy == nil) then return end
 		hierarchyRendered = true

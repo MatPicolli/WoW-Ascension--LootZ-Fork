@@ -60,21 +60,54 @@ Type `/lootz` in game to check it loaded.
 
 | Action | What it does |
 |---|---|
-| `CTRL` + left click a creature | Opens its loot table (`CTRL` is the default, change it with `/lootz keybind`) |
+| `CTRL` + left click a creature | Opens its loot table (`CTRL` is the default, change it in the options) |
+| `CTRL` + left click an item | Opens that item's loot table - what a container holds, or what prospecting, milling or disenchanting it gives. Works anywhere the game shows an item tooltip: bags, bank, character sheet, merchants |
 | Mouse over a creature | Tooltip shows how often you looted it, and what you got |
 | `ALT` while hovering a row | Shows the item tooltip |
 | `SHIFT` + click a row | Puts the item link into your chat box |
 | `CTRL` + click a row | Previews the item in the dressing room |
 | `ESC` | Closes the panel |
 
+## Options window
+
+Everything is on one screen. Open it with the **#** button in the loot window
+header, or:
+
+```
+/lootz options
+```
+
+It has:
+
+- **Statistics** - record the loot you pick up, show statistics in unit
+  tooltips, use statistics shared by other players, credit loot your companion
+  picks up.
+- **Chat** - the welcome message, warnings, errors, problem reports while
+  gathering, and debug logging.
+- **Hotkey** - click to cycle the modifier between `SHIFT`, `CTRL` and `ALT`.
+- **Collected data** - how many creatures and lootings you have recorded, how
+  much shared data is loaded, and how many deaths the companion tracker has
+  seen. That last number is the quickest way to tell whether companion looting
+  is working.
+- **Where is my data?** and **Reset data**. Reset asks for confirmation before
+  it wipes anything.
+
+Hovering an option explains what it does. The window can be dragged, and closes
+with `ESC`.
+
+Every setting still has a chat command, so nothing that worked before is gone.
+
+---
+
 Useful commands (`/lz` works too):
 
 ```
+/lootz options           open the options window
 /lootz help              list every command
 /lootz controls          list the hotkeys
 /lootz creature 3561     show a loot table by creature id
 /lootz object 1731       show a loot table by object id
-/lootz keybind           rebind the modifier key (SHIFT / CTRL / ALT)
+/lootz keybind           rebind the modifier key by pressing it
 /lootz stats gather      stop or resume recording your own loot
 /lootz companion         credit loot that a companion picks up for you
 /lootz shared            use (or ignore) statistics shared by other players

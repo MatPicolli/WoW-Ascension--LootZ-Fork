@@ -5,6 +5,7 @@ local render = _G.LEDII_LZ_RENDER
 local utils = _G.LEDII_LZ_UTILS
 local compat = _G.LEDII_LZ_COMPAT
 local loot = _G.LEDII_LZ_LOOT
+local options = _G.LEDII_LZ_OPTIONS
 
 local function PrivateClass()
 	local obj = {}
@@ -21,6 +22,7 @@ local function PrivateClass()
 
 	function obj:Help()
 		local cmd = SLASH_LEDII_LZ1
+		log:Info(obj:Highlight(cmd .. " options", " - Opens the options window"))
 		log:Info(obj:Highlight(cmd .. " alias", " - Logs all command aliases"))
 		log:Info(obj:Highlight(cmd .. " controls", " - Displays hotkeys"))
 		log:Info(obj:Highlight(cmd .. " reset", " - Resets all collected data"))
@@ -38,6 +40,15 @@ local function PrivateClass()
 		log:Info(obj:Highlight(cmd .. " debug", " - Logs loot events, for reporting problems"))
 		log:Info(obj:Highlight(cmd .. " welcome", " - Toggles login message"))
 		log:Info(obj:Highlight(cmd .. " version", " - Displays current version"))
+	end
+
+	function obj:Options()
+		if (options == nil) then
+			log:Info(const:Color("ERROR") .. "The options window failed to load.")
+			return
+		end
+
+		options:Toggle()
 	end
 
 	function obj:Companion()
@@ -288,7 +299,9 @@ SLASH_LEDII_LZ2 = '/lz'
 function SlashCmdList.LEDII_LZ(msg, editbox)
 	local args = utils:Split(msg, " ")
 
-	if (args[1] == "alias") then
+	if (args[1] == "options" or args[1] == "config") then
+		class:Options()
+	elseif (args[1] == "alias") then
 		class:Alias()
 	elseif (args[1] == "controls") then
 		class:Controls()
