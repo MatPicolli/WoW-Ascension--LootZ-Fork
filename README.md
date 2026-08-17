@@ -103,15 +103,22 @@ Turn it on with:
 ```
 
 The addon then watches the combat log for creatures dying and credits chat
-loot to the corpse that died most recently. What that means in practice:
+loot to the corpse that died most recently, within the last 90 seconds. What
+that means in practice:
 
 - **It is accurate when you kill things one at a time**, which is the normal
   case when a loot bot is doing the work.
 - **Turn it off while grouped or AoE grinding.** With several corpses on the
   ground it cannot tell which one the item came from, and a wrong guess ends
   up in the statistics you might later share.
-- Loot that arrives with no recent kill is ignored rather than guessed at, and
-  it tells you when that happens.
+- Loot that cannot be matched to a kill is ignored rather than guessed at, and
+  the addon tells you exactly why - either the last kill was too long ago (it
+  prints how long), or no death has been seen at all.
+- If the combat log never reports a single death, the addon falls back to a
+  corpse you have targeted or are hovering. That fallback is only used while
+  the combat log has produced nothing, so it can never override a real kill.
+- Deaths are recorded even when the creature's GUID type is not one this
+  client recognises, because custom cores use custom GUID ranges.
 - A corpse is counted once, no matter how many items come off it, and the loot
   window path and the companion path share one list of looted corpses, so
   nothing is ever counted twice.
@@ -120,12 +127,15 @@ Note that a corpse counts as a sample only once something is actually looted
 from it, exactly like hand looting. Corpses that drop nothing are not counted
 by either path, so the drop rates lean slightly high on both.
 
-**If it still does not pick anything up**, run `/lootz debug`, kill something,
-let the bot loot it, and look at the chat output. It prints every loot event
-the addon sees (`UNIT_DIED`, `CHAT_MSG_LOOT`, `LOOT_OPENED`). If nothing at all
-appears, then Ascension's bot delivers the items in a way the client never
-reports, and no addon can see it - send me that output and I will work from
-there.
+`/lootz companion` also reports how many deaths it has seen so far, which is
+the quickest way to tell whether the combat log is feeding it.
+
+**If it still picks nothing up**, run `/lootz debug`, kill something, let the
+bot loot it, and look at the chat output. It prints every loot event the addon
+sees, dumps the raw combat log arguments for the first few events, and says
+when a death was ignored and why. If no combat log lines appear at all, this
+server does not report kills to addons the usual way - send that output along
+and it can be worked from there.
 
 ---
 

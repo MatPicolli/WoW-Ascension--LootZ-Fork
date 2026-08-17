@@ -17,7 +17,10 @@ local function class()
 	--chat message. It is matched against the creatures that just died.
 	local recentKills = {}
 	local recentKillMax = 12
-	local recentKillTimeout = 30.0
+	local recentKillTimeout = 90.0
+	local deathsSeen = 0
+	local lastUnmatchedWarning = -math.huge
+	local unmatchedWarningInterval = 10.0
 	local lootWindowOpen = false
 	local lootWindowOpenedAt = 0
 	--Not 0: that would read as "a window just closed" at the start of a session
@@ -324,12 +327,30 @@ local function class()
 		lootWindowClosedAt = GetTime()
 	end
 
+	--Things that are definitely not a lootable creature. Anything else is
+	--accepted, including an unrecognised guid type: a server using custom guid
+	--ranges would otherwise record no deaths at all.
+	local nonCreatureTypes = {
+		["Player"] = true,
+		["Item"] = true,
+		["GameObject"] = true,
+		["Corpse"] = true,
+		["DynamicObject"] = true,
+		["Transport"] = true,
+	}
+
 	function obj:OnUnitDied(destGUID, destName)
 		if (destGUID == nil) then return end
 
 		local ids = utils:BreakGUID(destGUID)
-		if (ids.index == nil) then return end
-		if (ids.type ~= "Creature" and ids.type ~= "Vehicle") then return end
+		if (ids.index == nil or ids.index == 0) then
+			obj:DebugLog("death ignored, no creature id in guid " .. tostring(destGUID))
+			return
+		end
+		if (nonCreatureTypes[ids.type]) then
+			obj:DebugLog("death ignored, guid type " .. tostring(ids.type) .. " " .. tostring(destGUID))
+			return
+		end
 
 		--Newest first, so the most recent corpse wins
 		local kill = {}
@@ -338,12 +359,13 @@ local function class()
 		kill.unitId = ids.index
 		kill.time = GetTime()
 		table.insert(recentKills, 1, kill)
+		deathsSeen = deathsSeen + 1
 
 		while (#recentKills > recentKillMax) do
 			table.remove(recentKills)
 		end
 
-		obj:DebugLog("UNIT_DIED " .. tostring(destName) .. " (id " .. ids.index .. ")")
+		obj:DebugLog("death " .. tostring(destName) .. " id " .. ids.index .. " type " .. tostring(ids.type))
 	end
 
 	function obj:FindRecentKill()
@@ -356,7 +378,62 @@ local function class()
 			end
 		end
 
+		--Nothing from the combat log. If it never reported a single death then
+		--it cannot be relied on here at all, so fall back to a corpse the
+		--player is actually looking at.
+		if (deathsSeen == 0) then
+			return obj:FindTargetedCorpse()
+		end
+
 		return nil
+	end
+
+	function obj:FindTargetedCorpse()
+		local unitIds = { "target", "mouseover" }
+
+		for i = 1, #unitIds do
+			local unitId = unitIds[i]
+			if (obj:IsValidLootTarget(unitId)) then
+				local source = obj:BuildLootSource(unitId)
+				if (source.unitId ~= nil) then
+					obj:DebugLog("no combat log deaths, using " .. unitId .. " corpse " .. tostring(source.name))
+					return source
+				end
+			end
+		end
+
+		return nil
+	end
+
+	--Explains why loot could not be credited, instead of repeating one line
+	function obj:WarnUnmatchedLoot()
+		local now = GetTime()
+		if (now - lastUnmatchedWarning < unmatchedWarningInterval) then return end
+		lastUnmatchedWarning = now
+
+		if (deathsSeen == 0) then
+			log:Info(const:Color("WARNING") .. "Companion loot ignored: no creature death has been seen at all.")
+			log:Info(const:Color("WARNING") .. "This server's combat log is not reporting kills to the addon.")
+			log:Info(const:Color("WARNING") .. "Type " .. const:Color("TEXT_HIGHLIGHT") .. "/lootz debug"
+				.. const:Color("WARNING") .. ", kill something, and report what it prints.")
+			return
+		end
+
+		local age = "?"
+		if (recentKills[1] ~= nil) then
+			age = string.format("%.0f", now - recentKills[1].time)
+		end
+
+		log:Info(const:Color("WARNING") .. "Companion loot ignored: the last kill was " .. age
+			.. "s ago, and the limit is " .. recentKillTimeout .. "s.")
+	end
+
+	function obj:IsDebugEnabled()
+		return LediiData_LootZ ~= nil and LediiData_LootZ.debugEnabled == true
+	end
+
+	function obj:GetCompanionState()
+		return deathsSeen, #recentKills, recentKillTimeout
 	end
 
 	function obj:IsLootWindowOpen()
@@ -392,7 +469,7 @@ local function class()
 
 		local kill = obj:FindRecentKill()
 		if (kill == nil) then
-			log:Info(const:Color("WARNING") .. "Companion loot with no recent kill to match, ignored.")
+			obj:WarnUnmatchedLoot()
 			return
 		end
 
@@ -419,7 +496,10 @@ local function class()
 		if (total <= 0) then return end
 
 		local kill = obj:FindRecentKill()
-		if (kill == nil) then return end
+		if (kill == nil) then
+			obj:WarnUnmatchedLoot()
+			return
+		end
 
 		local lootSlot = {}
 		lootSlot.name = "Money"

@@ -8,6 +8,7 @@ local render = _G.LEDII_LZ_RENDER
 
 local frame = nil
 local hasLootReadyEvent = false
+local combatLogSamples = 0
 
 local function PrivateClass()
 	local obj = {}
@@ -80,6 +81,22 @@ local function PrivateClass()
 
 	function obj:OnCombatLogEvent(...)
 		local data = compat:ReadCombatLogEvent(...)
+
+		--In debug mode the first few events are dumped raw, so an unexpected
+		--argument layout on a custom server can be seen rather than guessed at
+		if (combatLogSamples < 6 and loot:IsDebugEnabled()) then
+			combatLogSamples = combatLogSamples + 1
+
+			local parts = {}
+			for i = 1, 8 do
+				table.insert(parts, tostring((select(i, ...))))
+			end
+
+			loot:DebugLog("combatlog raw " .. table.concat(parts, " | "))
+			loot:DebugLog("combatlog read event=" .. tostring(data.event)
+				.. " dest=" .. tostring(data.destGUID) .. " " .. tostring(data.destName))
+		end
+
 		if (data.event ~= "UNIT_DIED" and data.event ~= "PARTY_KILL") then return end
 
 		loot:OnUnitDied(data.destGUID, data.destName)
