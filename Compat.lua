@@ -407,6 +407,19 @@ local function class()
 		return button
 	end
 
+	function obj:CreateCheckButton(name, parent)
+		local templates = { "UICheckButtonTemplate", "OptionsCheckButtonTemplate", "InterfaceOptionsCheckButtonTemplate" }
+
+		for i = 1, #templates do
+			local ok, button = pcall(CreateFrame, "CheckButton", name, parent, templates[i])
+			if (ok and button ~= nil and button.SetChecked ~= nil) then
+				return button
+			end
+		end
+
+		return CreateFrame("CheckButton", name, parent)
+	end
+
 	function obj:SetCursorTexture(cursor)
 		if (SetCursor == nil) then return end
 		pcall(SetCursor, cursor)

@@ -72,6 +72,8 @@ local CREATURE_GUID_2 = "0xF130000DE9000E39"
 Mock.AddItem(1234, { name = "Linen Cloth", rarity = 1, type = "Trade Goods", subtype = "Cloth" })
 Mock.AddItem(5678, { name = "Ornate Blade", rarity = 3, type = "Weapon", subtype = "One-Handed Swords", slot = "INVTYPE_WEAPON" })
 Mock.AddItem(2770, { name = "Copper Ore", rarity = 1, type = "Trade Goods", subtype = "Metal & Stone" })
+Mock.AddItem(4321, { name = "Bot Salvage", rarity = 2, type = "Trade Goods", subtype = "Parts" })
+Mock.AddItem(774, { name = "Malachite", rarity = 2, type = "Gem", subtype = "Simple" })
 --This one is not in the client cache yet, it only resolves after a query
 Mock.AddItem(9999, { name = "Slow Loading Trinket", rarity = 4, type = "Armor", subtype = "Miscellaneous", slot = "INVTYPE_TRINKET", needsQuery = true })
 
@@ -355,6 +357,131 @@ check(ok, "object loot table opened" .. (ok and "" or (" -> " .. tostring(err)))
 
 _G.GameTooltipTextLeft1:SetText(nil)
 
+--Options window -------------------------------------------------------------
+
+section("Options window")
+
+check(_G.LootZOptionsPanel ~= nil, "the options panel exists")
+check(_G.LootZOptionsPanel:IsShown() == false, "it starts hidden")
+
+slash("options")
+check(_G.LootZOptionsPanel:IsShown(), "/lootz options opened it")
+
+--The # button in the loot panel header is the same window
+slash("options")
+check(_G.LootZOptionsPanel:IsShown() == false, "/lootz options closed it again")
+Mock.FireScript(_G.LootZButton3, "OnClick")
+check(_G.LootZOptionsPanel:IsShown(), "the # button in the loot panel opened it")
+
+--Every checkbox must reflect, and change, a real setting
+local checkedOptions = {
+	{ frame = "LootZOption2", key = "statsGatherDisabled", inverted = true },
+	{ frame = "LootZOption3", key = "statsTooltipDisabled", inverted = true },
+	{ frame = "LootZOption4", key = "sharedDisabled", inverted = true },
+	{ frame = "LootZOption5", key = "companionLootEnabled", inverted = false },
+	{ frame = "LootZOption7", key = "welcomeDisabled", inverted = true },
+	{ frame = "LootZOption8", key = "logWarningHidden", inverted = true },
+	{ frame = "LootZOption9", key = "logErrorHidden", inverted = true },
+	{ frame = "LootZOption10", key = "logStatsEnabled", inverted = false },
+	{ frame = "LootZOption11", key = "debugEnabled", inverted = false },
+}
+
+for i = 1, #checkedOptions do
+	local entry = checkedOptions[i]
+	local button = _G[entry.frame]
+
+	if (button == nil) then
+		check(false, entry.key .. " has a checkbox")
+	else
+		--The panel shows the saved value. Written long hand on purpose:
+		--"a and b or c" returns c whenever b is false.
+		local settingOn = (LediiData_LootZ[entry.key] == true)
+		local expected = settingOn
+		if (entry.inverted) then expected = not settingOn end
+		check(button:GetChecked() == expected, entry.key .. " is shown correctly when the panel opens")
+
+		--Clicking it writes the saved value back. Compared as true/false,
+		--since an untouched setting is nil rather than false.
+		local before = (LediiData_LootZ[entry.key] == true)
+		button:SetChecked(not button:GetChecked())
+		button:Click()
+		check((LediiData_LootZ[entry.key] == true) ~= before, entry.key .. " changed when its checkbox was clicked")
+
+		--And back, so the rest of the run is unaffected
+		button:SetChecked(not button:GetChecked())
+		button:Click()
+		check((LediiData_LootZ[entry.key] == true) == before, entry.key .. " changed back")
+	end
+end
+
+--Hotkey modifier cycles through the three usable keys
+LediiData_LootZ["HOTKEY_MOD"] = "CTRL"
+Mock.FireScript(_G.LootZOptionsModifier, "OnClick")
+check(LediiData_LootZ["HOTKEY_MOD"] == "ALT", "the modifier button cycled CTRL to ALT")
+Mock.FireScript(_G.LootZOptionsModifier, "OnClick")
+check(LediiData_LootZ["HOTKEY_MOD"] == "SHIFT", "and ALT to SHIFT")
+Mock.FireScript(_G.LootZOptionsModifier, "OnClick")
+check(LediiData_LootZ["HOTKEY_MOD"] == "CTRL", "and back around to CTRL")
+
+--Reset takes two clicks
+local unitsBefore = LediiData_LootZ.units
+Mock.FireScript(_G.LootZOptionsReset, "OnClick")
+check(LediiData_LootZ.units == unitsBefore, "one click on reset does not wipe anything")
+check(printedContains("Are you sure") or string.find(_G.LootZOptionsReset:GetText() or "", "sure"),
+	"it asks for confirmation first")
+
+Mock.FireScript(_G.LootZOptionsExport, "OnClick")
+check(printedContains("SavedVariables"), "the export button explains where the data is saved")
+
+slash("options")
+check(_G.LootZOptionsPanel:IsShown() == false, "the panel closed again")
+
+--Item under the cursor ------------------------------------------------------
+
+section("Loot table for an item under the cursor")
+
+_G.LEDII_DB.ItemLoot_1 = {
+	["4321"] = { lootRow(2770, 0, 100.0, 0, 1, 5) },
+}
+_G.LEDII_DB.ProspectingLoot_1 = {
+	["2770"] = { lootRow(774, 0, 50.0, 0, 1, 1) },
+}
+
+LediiData_LootZ["HOTKEY_MOD"] = "CTRL"
+Mock.keys.CTRL = true
+Mock.SetUnit("target", nil)
+
+--A bag item: the game is showing its tooltip, which is what the addon reads
+_G.GameTooltip.__item = "Bot Salvage"
+_G.GameTooltip.__itemLink = Mock.items[4321].link
+Mock.ClickMouse("LeftButton")
+Mock.RunFrames(30, 0.1)
+
+check(_G.LootZMainPanel:IsShown(), "alt/ctrl clicking an item in your bags opened the panel")
+check(Mock.FindText("Bot Salvage - Contents") ~= nil, "the header names the item and where the loot comes from")
+check(Mock.FindText("Copper Ore") ~= nil, "the item's loot table was rendered")
+
+--An item with no loot of its own says so instead of opening an empty window
+render = _G.LEDII_LZ_RENDER
+render:OnCloseButton()
+_G.GameTooltip.__item = "Linen Cloth"
+_G.GameTooltip.__itemLink = Mock.items[1234].link
+Mock.ClickMouse("LeftButton")
+check(printedContains("No loot data for Linen Cloth"), "an item with no loot table says so")
+check(_G.LootZMainPanel:IsShown() == false, "and the panel stayed closed")
+
+--Prospecting is found when there are no contents
+_G.GameTooltip.__item = "Copper Ore"
+_G.GameTooltip.__itemLink = Mock.items[2770].link
+Mock.ClickMouse("LeftButton")
+Mock.RunFrames(30, 0.1)
+check(Mock.FindText("Copper Ore - Prospecting") ~= nil, "prospecting loot is found when an item has no contents")
+
+_G.GameTooltip.__item = nil
+_G.GameTooltip.__itemLink = nil
+Mock.keys.CTRL = false
+render:OnCloseButton()
+
 --Companion looting ----------------------------------------------------------
 
 section("Companion looting (Lootbot 3000)")
@@ -368,7 +495,6 @@ Mock.RunFrames(20, 0.2)
 
 local BOT_ENTRY = 4242
 local BOT_GUID = "0xF130001092000001"
-Mock.AddItem(4321, { name = "Bot Salvage", rarity = 2, type = "Trade Goods", subtype = "Parts" })
 
 --A creature dies in the combat log, no loot window is ever opened
 local function KillCreature(guid, name)
